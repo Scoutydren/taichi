@@ -17,12 +17,12 @@ time_c = 2
 maxfps = 60
 dye_decay = 1 - 1 / (maxfps * time_c)
 force_radius = res / 2.0
-gravity = True
 debug = False
 paused = False
 
 ti.init(arch=ti.gpu)
 
+gravity = ti.field(ti.i32, 1)
 _velocities = ti.Vector.field(2, float, shape=(res, res))
 _new_velocities = ti.Vector.field(2, float, shape=(res, res))
 velocity_divs = ti.field(float, shape=(res, res))
@@ -108,7 +108,7 @@ def apply_impulse(vf: ti.template(), dyef: ti.template(),
         factor = ti.exp(-d2 / force_radius)
 
         dc = dyef[i, j]
-        a = dc.norm()
+        a = dc.norm() * gravity[0]
 
         momentum = (mdir * f_strength * factor + g_dir * a / (1 + a)) * dt
 
@@ -252,6 +252,10 @@ visualize_d = True  #visualize dye (default)
 visualize_v = False  #visualize velocity
 visualize_c = False  #visualize curl
 
+visualize_d = True  #visualize dye (default)
+visualize_v = False  #visualize velocity
+visualize_c = False  #visualize curl
+
 gui = ti.GUI('Stable Fluid', (res, res))
 md_gen = MouseDataGen()
 
@@ -263,6 +267,8 @@ while gui.running:
         elif e.key == 'r':
             paused = False
             reset()
+        elif e.key == 'g':
+            gravity[0] = not gravity[0]
         elif e.key == 's':
             if curl_strength:
                 curl_strength = 0
