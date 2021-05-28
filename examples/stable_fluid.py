@@ -10,7 +10,7 @@ import taichi as ti
 
 res = 512
 dt = 0.03
-p_jacobi_iters = 500  # 40 for a quicker but less accurate result
+p_jacobi_iters = 700  # 40 for a quicker but less accurate result
 f_strength = 10000.0
 curl_strength = 0
 time_c = 2
@@ -159,7 +159,7 @@ def pressure_jacobi(pf: ti.template(), new_pf: ti.template()):
         pb = sample(pf, i, j - 1)
         pt = sample(pf, i, j + 1)
         div = velocity_divs[i, j]
-        new_pf[i, j] = (pl + pr + pb + pt - div) * 0.25
+        new_pf[i, j] = (pl + pr + pb + pt - div) * 0.25 - pf[256, 256]
 
 
 @ti.kernel
