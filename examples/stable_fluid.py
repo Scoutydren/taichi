@@ -274,8 +274,6 @@ while gui.running:
                 curl_strength = 0
             else:
                 curl_strength = 7
-        elif e.key == 'g':
-            gravity = not gravity
         elif e.key == 'v':
             visualize_v = True
             visualize_c = False
