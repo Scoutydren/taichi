@@ -10,7 +10,7 @@ import taichi as ti
 
 res = 512
 dt = 0.03
-p_jacobi_iters = 700  # 40 for a quicker but less accurate result
+p_jacobi_iters = 500  # 40 for a quicker but less accurate result
 f_strength = 10000.0
 curl_strength = 0
 time_c = 2
@@ -163,6 +163,39 @@ def pressure_jacobi(pf: ti.template(), new_pf: ti.template()):
 
 
 @ti.kernel
+def divergence_optimize(vf: ti.template(), new_vf: ti.template()):
+    for i, j in vf:
+        vl = sample(vf, i - 1, j)
+        vr = sample(vf, i + 1, j)
+        vb = sample(vf, i, j - 1)
+        vt = sample(vf, i, j + 1)
+        vlb = sample(vf, i + 1, j - 1)
+        vlt = sample(vf, i + 1, j + 1)
+        vrb = sample(vf, i - 1, j - 1)
+        vrt = sample(vf, i - 1, j + 1)
+        vc = sample(vf, i, j)
+        vin=ti.Matrix([
+            [vlt,vt,vrt],
+            [vl,vc,vr],
+            [vlb,vb,vrb]])
+        conxx=ti.Matrix([
+            [1,-2,1],
+            [2,-4,2],
+            [1,-2,1]])
+        conxy=ti.Matrix([
+            [-1,0,1],
+            [0,0,0],
+            [1,0,-1]])
+        conyx=conxy.transpose()
+        conyy=conxx.transpose()
+        outx,outy=0.0,0.0
+        for i1,j1 in ti.static(ti.ndrange(3, 3)):
+            outx+=vin[i1,j1].x*conxx[i1,j1]+vin[i1,j1].y*conxy[i1,j1]
+            outy+=vin[i1,j1].x*conyx[i1,j1]+vin[i1,j1].y*conyy[i1,j1]
+        new_vf[i, j] = vf[i, j] + ti.Vector([outx, outy]) * 0.125
+
+
+@ti.kernel
 def subtract_gradient(vf: ti.template(), pf: ti.template()):
     for i, j in vf:
         pl = sample(pf, i - 1, j)
@@ -201,11 +234,15 @@ def step(mouse_data):
         vorticity(velocities_pair.cur)
         enhance_vorticity(velocities_pair.cur, velocity_curls)
 
-    for _ in range(p_jacobi_iters):
-        pressure_jacobi(pressures_pair.cur, pressures_pair.nxt)
-        pressures_pair.swap()
+    # for _ in range(p_jacobi_iters):
+    #     pressure_jacobi(pressures_pair.cur, pressures_pair.nxt)
+    #     pressures_pair.swap()
 
-    subtract_gradient(velocities_pair.cur, pressures_pair.cur)
+    # for _ in range(p_jacobi_iters):
+    #     divergence_optimize(velocities_pair.cur, velocities_pair.nxt)
+    #     velocities_pair.swap()
+   
+    # subtract_gradient(velocities_pair.cur, pressures_pair.cur)
 
     if debug:
         divergence(velocities_pair.cur)
@@ -292,7 +329,7 @@ while gui.running:
             debug = not debug
 
     # Debug divergence:
-    # print(max((abs(velocity_divs.to_numpy().reshape(-1)))))
+    print(max((abs(velocity_divs.to_numpy().reshape(-1)))))
 
     if not paused:
         mouse_data = md_gen(gui)
