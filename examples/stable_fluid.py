@@ -5,7 +5,6 @@
 # https://github.com/ShaneFX/GAMES201/tree/master/HW01
 
 import numpy as np
-
 import taichi as ti
 
 res = 512
@@ -234,15 +233,15 @@ def step(mouse_data):
         vorticity(velocities_pair.cur)
         enhance_vorticity(velocities_pair.cur, velocity_curls)
 
-    # for _ in range(p_jacobi_iters):
-    #     pressure_jacobi(pressures_pair.cur, pressures_pair.nxt)
-    #     pressures_pair.swap()
+    for _ in range(p_jacobi_iters):
+        pressure_jacobi(pressures_pair.cur, pressures_pair.nxt)
+        pressures_pair.swap()
 
     # for _ in range(p_jacobi_iters):
     #     divergence_optimize(velocities_pair.cur, velocities_pair.nxt)
     #     velocities_pair.swap()
    
-    # subtract_gradient(velocities_pair.cur, pressures_pair.cur)
+    subtract_gradient(velocities_pair.cur, pressures_pair.cur)
 
     if debug:
         divergence(velocities_pair.cur)
