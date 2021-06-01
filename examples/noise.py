@@ -13,8 +13,8 @@ warp_freq = 8.0
 noise_mag = 2.0
 tv_static = False
 fbm_v = False
-perlin_v = False
-worley_v = True
+perlin_v = True
+worley_v = False
 
 noise_greyscale = ti.field(ti.f32, shape=(res, res))
 noise_outlook = ti.Vector.field(3, float, shape=(res, res))
@@ -92,6 +92,26 @@ def worley(u, v):
             minDist = ti.min(minDist, dist)
     return minDist
 
+@ti.func
+def surflet(p, gridp):
+    distx = ti.abs(p.x - gridp.x)
+    disty = ti.abs(p.y - gridp.y)
+    tx = 1.0 - 6.0 * (distx ** 5.0) + 15.0 * (distx ** 4.0) - 10.0 *  (distx ** 3.0)
+    ty = 1.0 - 6.0 * (disty ** 5.0) + 15.0 * (disty ** 4.0) - 10.0 *  (disty ** 3.0)
+
+    gradient = randomv2(gridp.x, gridp.y)
+    diff = p - gridp
+    height = diff.dot(gradient)
+    return height * tx * ty
+
+@ti.func
+def perlin(u, v):
+    uv = ti.Vector([u, v])
+    bl = ti.Vector([ti.floor(u), ti.floor(v)])
+    br = bl + ti.Vector([1, 0])
+    tr = bl + ti.Vector([1, 1])
+    tl = bl + ti.Vector([0, 1])
+    return surflet(uv, bl) + surflet(uv, br) + surflet(uv, tr) + surflet(uv, tl)
 
 ## TV static noise
 @ti.kernel
@@ -121,11 +141,13 @@ def draw_worley(f: ti.template()):
         f[i, j] = h
 
 #perlin noise
+@ti.kernel
 def draw_perlin(f: ti.template()):
-    for i, j in f: 
+    for i, j in f:
         u = i / res
         v = j / res
-        
+        h = perlin(u, v)
+        f[i, j] = h
 
 @ti.kernel
 def test(i: ti.f32, j: ti.f32) -> ti.f32:
@@ -153,5 +175,8 @@ while gui.running:
     #draw worley noise
     elif worley_v:
         draw_worley(noise_greyscale)
+        gui.set_image(noise_greyscale)
+    else:
+        draw_perlin(noise_greyscale)
         gui.set_image(noise_greyscale)
     gui.show()
