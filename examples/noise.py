@@ -99,13 +99,15 @@ def surflet(p, gridp):
     tx = 1.0 - 6.0 * (distx ** 5.0) + 15.0 * (distx ** 4.0) - 10.0 *  (distx ** 3.0)
     ty = 1.0 - 6.0 * (disty ** 5.0) + 15.0 * (disty ** 4.0) - 10.0 *  (disty ** 3.0)
 
-    gradient = randomv2(gridp.x, gridp.y)
+    gradient = randomv2(gridp.x, gridp.y) * 2.0 - ti.Vector([1.0, 1.0])
     diff = p - gridp
     height = diff.dot(gradient)
     return height * tx * ty
 
 @ti.func
 def perlin(u, v):
+    u *= 10.0
+    v *= 10.0
     uv = ti.Vector([u, v])
     bl = ti.Vector([ti.floor(u), ti.floor(v)])
     br = bl + ti.Vector([1, 0])
