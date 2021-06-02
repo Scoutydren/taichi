@@ -12,6 +12,7 @@ dt = 0.03
 p_jacobi_iters = 500  # 40 for a quicker but less accurate result
 f_strength = 10000.0
 curl_strength = 0
+noise_strength = 0
 time_c = 2
 maxfps = 60
 dye_decay = 1 - 1 / (maxfps * time_c)
@@ -21,6 +22,7 @@ paused = False
 
 ti.init(arch=ti.gpu)
 
+background_c = ti.field(ti.f32, 3)
 gravity = ti.field(ti.i32, 1)
 _velocities = ti.Vector.field(2, float, shape=(res, res))
 _new_velocities = ti.Vector.field(2, float, shape=(res, res))
@@ -85,6 +87,10 @@ def backtrace(vf: ti.template(), p, dt: ti.template()):
     p -= dt * ((2 / 9) * v1 + (1 / 3) * v2 + (4 / 9) * v3)
     return p
 
+@ti.kernel
+def fill_background(vf: ti.template()):
+    for i, j in vf:
+        vf[i, j] = ti.Vector([0.5, 0.5, 0.5])
 
 @ti.kernel
 def advect(vf: ti.template(), qf: ti.template(), new_qf: ti.template()):
@@ -92,6 +98,13 @@ def advect(vf: ti.template(), qf: ti.template(), new_qf: ti.template()):
         p = ti.Vector([i, j]) + 0.5
         p = backtrace(vf, p, dt)
         new_qf[i, j] = bilerp(qf, p) * dye_decay
+
+@ti.kernel
+def advect_color(vf: ti.template(), qf: ti.template(), new_qf: ti.template()):
+    for i, j in vf:
+        p = ti.Vector([i, j]) + 0.5
+        p = backtrace(vf, p, dt)
+        new_qf[i, j] = ti.max(0.5, bilerp(qf, p) * dye_decay)
 
 
 @ti.kernel
@@ -117,7 +130,7 @@ def apply_impulse(vf: ti.template(), dyef: ti.template(),
         if mdir.norm() > 0.5:
             dc += ti.exp(-d2 * (4 / (res / 15)**2)) * ti.Vector(
                 [imp_data[4], imp_data[5], imp_data[6]])
-
+ 
         dyef[i, j] = dc
 
 
@@ -221,7 +234,7 @@ def enhance_vorticity(vf: ti.template(), cf: ti.template()):
 
 def step(mouse_data):
     advect(velocities_pair.cur, velocities_pair.cur, velocities_pair.nxt)
-    advect(velocities_pair.cur, dyes_pair.cur, dyes_pair.nxt)
+    advect_color(velocities_pair.cur, dyes_pair.cur, dyes_pair.nxt)
     velocities_pair.swap()
     dyes_pair.swap()
 
@@ -240,7 +253,7 @@ def step(mouse_data):
     # for _ in range(p_jacobi_iters):
     #     divergence_optimize(velocities_pair.cur, velocities_pair.nxt)
     #     velocities_pair.swap()
-   
+
     subtract_gradient(velocities_pair.cur, pressures_pair.cur)
 
     if debug:
@@ -294,6 +307,7 @@ visualize_c = False  #visualize curl
 
 gui = ti.GUI('Stable Fluid', (res, res))
 md_gen = MouseDataGen()
+fill_background(dyes_pair.cur)
 
 while gui.running:
     if gui.get_event(ti.GUI.PRESS):
@@ -328,8 +342,7 @@ while gui.running:
             debug = not debug
 
     # Debug divergence:
-    print(max((abs(velocity_divs.to_numpy().reshape(-1)))))
-
+    # print(max((abs(velocity_divs.to_numpy().reshape(-1)))))
     if not paused:
         mouse_data = md_gen(gui)
         step(mouse_data)
