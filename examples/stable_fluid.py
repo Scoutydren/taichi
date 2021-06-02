@@ -22,7 +22,7 @@ paused = False
 
 ti.init(arch=ti.gpu)
 
-background_c = ti.field(ti.f32, 3)
+background_c = ti.Vector([0.5, 0.5, 0.5])
 gravity = ti.field(ti.i32, 1)
 _velocities = ti.Vector.field(2, float, shape=(res, res))
 _new_velocities = ti.Vector.field(2, float, shape=(res, res))
@@ -90,7 +90,7 @@ def backtrace(vf: ti.template(), p, dt: ti.template()):
 @ti.kernel
 def fill_background(vf: ti.template()):
     for i, j in vf:
-        vf[i, j] = ti.Vector([0.5, 0.5, 0.5])
+        vf[i, j] = background_c
 
 @ti.kernel
 def advect(vf: ti.template(), qf: ti.template(), new_qf: ti.template()):
@@ -104,7 +104,7 @@ def advect_color(vf: ti.template(), qf: ti.template(), new_qf: ti.template()):
     for i, j in vf:
         p = ti.Vector([i, j]) + 0.5
         p = backtrace(vf, p, dt)
-        new_qf[i, j] = ti.max(0.5, bilerp(qf, p) * dye_decay)
+        new_qf[i, j] = ti.max(background_c, bilerp(qf, p) * dye_decay)
 
 
 @ti.kernel
@@ -305,9 +305,9 @@ visualize_d = True  #visualize dye (default)
 visualize_v = False  #visualize velocity
 visualize_c = False  #visualize curl
 
-gui = ti.GUI('Stable Fluid', (res, res))
+gui = ti.GUI('Stable Fluid', (res, res), fullscreen = False)
 md_gen = MouseDataGen()
-fill_background(dyes_pair.cur)
+# fill_background(dyes_pair.cur)
 
 while gui.running:
     if gui.get_event(ti.GUI.PRESS):
