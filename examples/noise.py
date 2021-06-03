@@ -13,8 +13,8 @@ warp_freq = 8.0
 noise_mag = 2.0
 tv_static = False
 fbm_v = False
-perlin_v = True
-worley_v = False
+perlin_v = False
+worley_v = True
 
 noise_greyscale = ti.field(ti.f32, shape=(res, res))
 noise_outlook = ti.Vector.field(3, float, shape=(res, res))
@@ -152,6 +152,51 @@ def draw_perlin(f: ti.template()):
         f[i, j] = h
 
 @ti.kernel
+def apply_kuwahara(f: ti.template()):
+    radius = 3
+    for i, j in f:
+        u = i / res
+        v = j / res
+        n = ((radius + 1) ** 2)
+        m = ti.Vector.field(3, dtype = ti.f32, shape = (4))
+        s = ti.Vector.field(3, dtype = ti.f32, shape = (4))
+        
+        # left bottom corner
+        for j in range(-radius, 1):
+            for i in range(-radius, 1):
+                c = f[i, j]
+                m[0] += c
+                s[0] += c * c
+        
+        for j in range(-radius, 1):
+            for i in range(0, radius + 1):
+                c = f[i, j]
+                m[0] += c
+                s[0] += c * c
+        
+        for j in range(0, radius + 1):
+            for i in range(0, radius + 1):
+                c = f[i, j]
+                m[0] += c
+                s[0] += c * c
+        
+        for j in range(0, radius + 1):
+            for i in range(-radius, 1):
+                c = f[i, j]
+                m[0] += c
+                s[0] += c * c
+
+        min_sigma2 = 1e+2
+        for k in range(0, 4):
+            m[k] /= n
+            s[k] = abs(s[k] / n - m[k] * m[k])
+
+            sigma2 = s[k].x + s[k].y + s[k].z
+            if sigma2 < min_sigma2:
+                min_sigma2 = sigma2
+                f[i, j] = ti.Vector([m[k].xyz, 1])
+
+@ti.kernel
 def test(i: ti.f32, j: ti.f32) -> ti.f32:
     vec2 = ti.Vector([i, j])
     randv1 = ti.Vector([127.1, 311.7])
@@ -177,6 +222,7 @@ while gui.running:
     #draw worley noise
     elif worley_v:
         draw_worley(noise_greyscale)
+        apply_kuwahara(noise_greyscale)
         gui.set_image(noise_greyscale)
     else:
         draw_perlin(noise_greyscale)
