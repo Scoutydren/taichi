@@ -3,8 +3,9 @@
 
 import taichi as ti
 import numpy as np
+import taichi_glsl as ts
 
-ti.init(arch=ti.gpu)
+ti.init(arch=ti.gpu, print_kernel_llvm_ir = True)
 
 res = 512
 fbm_octaves = 10
@@ -16,8 +17,13 @@ fbm_v = False
 perlin_v = False
 worley_v = True
 
+radius = 3
+
 noise_greyscale = ti.field(ti.f32, shape=(res, res))
 noise_outlook = ti.Vector.field(3, float, shape=(res, res))
+m = ti.Vector.field(3, shape=(4), dtype=float)
+s = ti.Vector.field(3, shape=(4), dtype=float)
+noise_afterprocess = ti.Vector.field(3, float, shape=(res, res))
 
 @ti.func
 def fract(i):
@@ -115,6 +121,12 @@ def perlin(u, v):
     tl = bl + ti.Vector([0, 1])
     return surflet(uv, bl) + surflet(uv, br) + surflet(uv, tr) + surflet(uv, tl)
 
+@ti.func
+def sample(f, i, j):
+    I = ti.Vector([int(i), int(j)])
+    I = max(0, min(res - 1, I))
+    return f[I]
+
 ## TV static noise
 @ti.kernel
 def draw_tv_noise(f: ti.template()):
@@ -140,7 +152,7 @@ def draw_worley(f: ti.template()):
         u = i / res
         v = j / res
         h = worley(u, v)
-        f[i, j] = h
+        f[i, j] = ti.Vector([h, h, h])
 
 #perlin noise
 @ti.kernel
@@ -152,49 +164,53 @@ def draw_perlin(f: ti.template()):
         f[i, j] = h
 
 @ti.kernel
-def apply_kuwahara(f: ti.template()):
-    radius = 3
+def apply_revert(f: ti.template(), new_f: ti.template()):
     for i, j in f:
-        u = i / res
-        v = j / res
+        new_f[i, j] = ti.Vector([1 - f[i, j].x,
+                                 1 - f[i, j].y,
+                                 1 - f[i, j].z])
+
+@ti.kernel
+def apply_kuwahara(f: ti.template(), new_f: ti.template()):
+    
+    for i, j in f:
         n = ((radius + 1) ** 2)
-        m = ti.Vector.field(3, dtype = ti.f32, shape = (4))
-        s = ti.Vector.field(3, dtype = ti.f32, shape = (4))
+        # for y in range(-radius, 1):
+            # for x in range(-radius, 1):
+                # c = sample(f, i + x, j + y)
+        m[0] += 1.0
+                # s[0] += s[0] + ti.Vector([c.x * c.x, c.y * c.y, c.z * c.z])
         
-        # left bottom corner
-        for j in range(-radius, 1):
-            for i in range(-radius, 1):
-                c = f[i, j]
-                m[0] += c
-                s[0] += c * c
+        # for y in range(-radius, 1):
+        #     for x in range(0, radius + 1):
+        #         c = sample(f, i + x, j + y)
+        #         m[1] = m[1] + c
+        #         s[1] = s[1] + ti.Vector([c.x * c.x, c.y * c.y, c.z * c.z])
         
-        for j in range(-radius, 1):
-            for i in range(0, radius + 1):
-                c = f[i, j]
-                m[0] += c
-                s[0] += c * c
+        # for y in range(0, radius + 1):
+        #     for x in range(0, radius + 1):
+        #         c = sample(f, i + x, j + y)
+        #         m[2] += c
+        #         s[2] += c * c
         
-        for j in range(0, radius + 1):
-            for i in range(0, radius + 1):
-                c = f[i, j]
-                m[0] += c
-                s[0] += c * c
-        
-        for j in range(0, radius + 1):
-            for i in range(-radius, 1):
-                c = f[i, j]
-                m[0] += c
-                s[0] += c * c
+        # for y in range(0, radius + 1):
+        #     for x in range(-radius, 1):
+        #         c = sample(f, i + x, j + y)
+        #         m[3] += c
+        #         s[3] += c * c
 
-        min_sigma2 = 1e+2
-        for k in range(0, 4):
-            m[k] /= n
-            s[k] = abs(s[k] / n - m[k] * m[k])
+        # min_sigma2 = 1e+2
+        # for k in range(0, 4):
+        #     m[k] /= n
+        #     s[k] = abs(s[k] / n - m[k] * m[k])
 
-            sigma2 = s[k].x + s[k].y + s[k].z
-            if sigma2 < min_sigma2:
-                min_sigma2 = sigma2
-                f[i, j] = ti.Vector([m[k].xyz, 1])
+        #     sigma2 = s[k].x + s[k].y + s[k].z
+        #     if sigma2 < min_sigma2:
+        #         min_sigma2 = sigma2
+        #         r = m[k].x
+        #         g = m[k].y
+        #         b = m[k].z
+        #         new_f[i, j] = ti.Vector([r, g, b])
 
 @ti.kernel
 def test(i: ti.f32, j: ti.f32) -> ti.f32:
@@ -209,8 +225,9 @@ def test(i: ti.f32, j: ti.f32) -> ti.f32:
     print(randv4 - ti.floor(randv4))
 
 gui = ti.GUI('Noise', (res, res))
+# ti.set_logging_level(ti.DEBUG)
 
-while gui.running:
+while not gui.get_event(ti.GUI.ESCAPE):
     #draw tv static noise
     if tv_static:
         draw_tv_noise(noise_greyscale)
@@ -221,9 +238,9 @@ while gui.running:
         gui.set_image(noise_greyscale)
     #draw worley noise
     elif worley_v:
-        draw_worley(noise_greyscale)
-        apply_kuwahara(noise_greyscale)
-        gui.set_image(noise_greyscale)
+        # draw_worley(noise_outlook)
+        apply_kuwahara(noise_outlook, noise_afterprocess)
+        gui.set_image(noise_afterprocess)
     else:
         draw_perlin(noise_greyscale)
         gui.set_image(noise_greyscale)
