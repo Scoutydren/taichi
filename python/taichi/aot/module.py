@@ -78,7 +78,7 @@ class Module:
         self._kernels.append(kernel)
 
     def add_template_kernel(self, kernel_fn, template_args, name=None):
-      name = name or kernel_fn.__name__
+        name = name or kernel_fn.__name__
         kernel = kernel_fn._primal
         assert isinstance(kernel, kernel_impl.Kernel)
         injected_args = []
@@ -92,7 +92,7 @@ class Module:
         kernel.ensure_compiled(*injected_args)
         self._aot_builder.add(name, kernel.kernel_cpp)
 
-        # kernel AOT
+      # kernel AOT
         self._kernels.append(kernel)
 
     def save(self, filepath, filename):
