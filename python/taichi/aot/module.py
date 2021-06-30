@@ -25,7 +25,9 @@ class Module:
         self._aot_builder = impl.get_runtime().prog.make_aot_module_builder(
             arch)
 
-    def add_kernel(self, kernel_fn, name=None, template_args=None):
+    #def add_field(self, field, field_name):
+    
+    def add_kernel(self, kernel_fn, name=None):
         """Add a taichi kernel to the AOT module.
 
         Args:
@@ -66,13 +68,27 @@ class Module:
             anno = kernel.argument_annotations[i]
             if isinstance(anno, kernel_arguments.ArgExtArray):
                 raise RuntimeError('Arg type `ext_arr` not supported yet')
+            else:
+                # For primitive types, we can just inject a dummy value.
+                injected_args.append(0)
+        kernel.ensure_compiled(*injected_args)
+        self._aot_builder.add(name, kernel.kernel_cpp)
 
+        # kernel AOT
+        self._kernels.append(kernel)
+
+    def add_template_kernel(self, kernel_fn, template_args, name=None):
+      name = name or kernel_fn.__name__
+        kernel = kernel_fn._primal
+        assert isinstance(kernel, kernel_impl.Kernel)
+        injected_args = []
+        for i in range(len(kernel.argument_annotations)):
+            anno = kernel.argument_annotations[i]
             if isinstance(anno, kernel_arguments.Template):
                 value = template_args[kernel.argument_names[i]]
                 injected_args.append(value)
             else:
-                # For primitive types, we can just inject a dummy value.
-                injected_args.append(0)
+                raise RuntimeError('The kernel to add does not have template arguments')
         kernel.ensure_compiled(*injected_args)
         self._aot_builder.add(name, kernel.kernel_cpp)
 
