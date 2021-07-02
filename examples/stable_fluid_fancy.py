@@ -9,8 +9,8 @@ import time
 # SIM_RES_x = 139
 # SIM_RES_y = 199
 
-SIM_RES_x = 30
-SIM_RES_y = 100
+SIM_RES_x = 300
+SIM_RES_y = 1000
 
 # RENDER_RES_x = 1668
 # RENDER_RES_y = 2388
@@ -24,6 +24,9 @@ RENDER_RES_y = 1000
 dt = 0.03
 p_jacobi_iters = 400
 debug = False
+time_c = 2
+maxfps = 60
+dye_decay = 1 - 1 / (maxfps * time_c)
 
 # assert res > 2
 
@@ -129,24 +132,34 @@ pressures_pair = TexPair(_pressures, _new_pressures)
 dyes_pair = TexPair(_dye_buffer, _new_dye_buffer)
 
 
+# 3rd order Runge-Kutta
+@ti.func
+def backtrace(vf: ti.template(), p, resX: ti.i32, resY: ti.i32):
+    x, y = p
+    res = ti.Vector([resX, resY])
+    v1 = bilerp(vf, x, y, res)
+    p1 = p - 0.5 * dt * v1
+    x1, y1 = p1
+    v2 = bilerp(vf, x1, y1, res)
+    p2 = p - 0.75 * dt * v2
+    x2, y2 = p2
+    v3 = bilerp(vf, x2, y2, res)
+    p -= dt * ((2 / 9) * v1 + (1 / 3) * v2 + (4 / 9) * v3)
+    return p
+
+
 @ti.kernel
 
 def advect(vf: ti.template(), qf: ti.template(), new_qf: ti.template(),
-           dissipation: float, resX: ti.i32, resY: ti.i32):
+           resX: ti.i32, resY: ti.i32):
     for i, j in qf:
+        p = ti.Vector([i, j]) + 0.5
+        p = backtrace(vf, p, resX, resY)
         res = ti.Vector([resX, resY])
-        uv = normalize(ti.Vector([i, j]) + 0.5, res)
-        sim_res = ti.Vector([SIM_RES_x, SIM_RES_y])
-        vel = sample(vf, uv, sim_res)
-        prev_uv = uv - dt * vel
-        q_s = sample(qf, prev_uv, res)
-        decay = 1.0 + dissipation * dt
-        new_qf[i, j] = q_s / decay
+        new_qf[i, j] = bilerp(qf, p.x, p.y, res) * dye_decay
 
-
-force_radius = 0.1 / 300
-inv_force_radius = 1.0 / force_radius
-
+force_radius = (SIM_RES_y + SIM_RES_x) / 4.0
+dye_radius = (RENDER_RES_x + RENDER_RES_y) / 4.0
 
 @ti.kernel
 def impulse_velocity(vf: ti.template(), f_strength: ti.f32,
@@ -156,15 +169,15 @@ def impulse_velocity(vf: ti.template(), f_strength: ti.f32,
         simpos = convertDyePosToSimPos(renderpos)
         dx, dy = (i + 0.5 - simpos.x), (j + 0.5 - simpos.y)
         d2 = dx * dx + dy * dy
-        factor = ti.exp(-d2 / force_radius)
+        factor = ti.exp(- d2 / force_radius)
         mdir = ti.Vector([dx, dy])
         momentum = (factor * f_strength * mdir) * dt
         vel = vf[i, j]
         vf[i, j] = vel + momentum
 
 
-dye_radius = 0.1 / 300
-inv_dye_radius = 1.0 / dye_radius
+# dye_radius = 0.1 / 300
+# inv_dye_radius = 1.0 / dye_radius
 
 
 @ti.kernel
@@ -230,8 +243,6 @@ def divergence(vf: ti.template()):
         if j == res.y - 1:
             vt = -vc[1]
         velocity_divs[i, j] = 0.5 * res.x / 2 * (vr - vl) + 0.5 * res.y / 2 * (vt - vb)
-        
-
 
 p_alpha = - (1.0 / SIM_RES_x) * (1.0 / SIM_RES_y)
 
@@ -257,7 +268,7 @@ def subtract_gradient(vf: ti.template(), pf: ti.template()):
         pb = sample_clamp_to_edge(pf, i, j - 1, res)
         pt = sample_clamp_to_edge(pf, i, j + 1, res)
         vel = sample_clamp_to_edge(vf, i, j, res)
-        vel -= 0.5 * res * ti.Vector([pr - pl, pt - pb])
+        vel -= 0.5 * SIM_RES_x * ti.Vector([pr - pl, pt - pb])
         vf[i, j] = vel
 
 
@@ -291,20 +302,6 @@ def subtract_gradient(vf: ti.template(), pf: ti.template()):
 #         c += bloom
 
 #         color_buffer.field[i, j] = c
-
-
-def run_impulse_kernels(mouse_data):
-    pxy = mouse_data[2:4]
-    mdir = mouse_data[0:2]
-    force_strength = 10000
-    impulse_velocity(velocities_pair.cur, force_strength,
-                    float(pxy[0]), float(pxy[1]),
-                    float(mdir[0]), float(mdir[1]))
-
-    rgb = mouse_data[4:]
-    impulse_dye(dyes_pair.cur,
-                float(pxy[0]), float(pxy[1]),
-                float(rgb[0]), float(rgb[1]), float(rgb[2]))
 
 
 BLOOM_THRESHOLD = 0.6
@@ -408,18 +405,29 @@ SUNRAYS_ITERATIONS = 16
 
 
 def step(mouse_data):
-    advect(velocities_pair.cur, velocities_pair.cur, velocities_pair.nxt, 0.4, SIM_RES_x, SIM_RES_y)
-    advect(velocities_pair.cur, dyes_pair.cur, dyes_pair.nxt, 0.4, RENDER_RES_x, RENDER_RES_y)
+    advect(velocities_pair.cur, velocities_pair.cur, velocities_pair.nxt, SIM_RES_x, SIM_RES_y)
+    advect(velocities_pair.cur, dyes_pair.cur, dyes_pair.nxt, RENDER_RES_x, RENDER_RES_y)
     velocities_pair.swap()
     dyes_pair.swap()
 
-    run_impulse_kernels(mouse_data)
+    pxy = mouse_data[2:4]
+    mdir = mouse_data[0:2]
+    force_strength = 10000
+    impulse_velocity(velocities_pair.cur, force_strength,
+                    float(pxy[0]), float(pxy[1]),
+                    float(mdir[0]), float(mdir[1]))
+
+    rgb = mouse_data[4:]
+    impulse_dye(dyes_pair.cur,
+                float(pxy[0]), float(pxy[1]),
+                float(rgb[0]), float(rgb[1]), float(rgb[2]))
 
     # add_curl(velocities_pair.cur)
     # add_voriticity(velocities_pair.cur)
     # velocities_pair.swap()
 
     divergence(velocities_pair.cur)
+
     for _ in range(p_jacobi_iters):
         pressure_jacobi(pressures_pair.cur, pressures_pair.nxt)
         pressures_pair.swap()
