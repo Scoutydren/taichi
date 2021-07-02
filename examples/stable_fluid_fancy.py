@@ -76,6 +76,11 @@ def normalize(ij, res):
     v = j * texel_sizeY
     return ti.Vector([u, v])
 
+@ti.func
+def convertDyePosToSimPos(xy):
+    res = ti.Vector([RENDER_RES_x, RENDER_RES_y])
+    normxy = normalize(xy, res)
+    return ti.Vector([normxy.x * SIM_RES_x, normxy.y * SIM_RES_y])
 
 _velocities = ti.Vector.field(2, ti.f32, shape=(SIM_RES_x, SIM_RES_y))
 _new_velocities = ti.Vector.field(2, ti.f32, shape=(SIM_RES_x, SIM_RES_y))
@@ -144,14 +149,16 @@ inv_force_radius = 1.0 / force_radius
 
 
 @ti.kernel
-def impulse_velocity(
-        vf: ti.template(), omx: float, omy: float, fx: float, fy: float):
+def impulse_velocity(vf: ti.template(), f_strength: ti.f32,
+        renderposx: ti.f32, renderposy: ti.f32, dx: ti.f32, dy: ti.f32):
     for i, j in vf:
-        sim_res = ti.Vector([SIM_RES_x, SIM_RES_y])
-        u, v = normalize(ti.Vector([i, j]) + 0.5, sim_res)
-        dx, dy = (u - omx), (v - omy)
+        renderpos = ti.Vector([renderposx, renderposy])
+        simpos = convertDyePosToSimPos(renderpos)
+        dx, dy = (i + 0.5 - simpos.x), (j + 0.5 - simpos.y)
         d2 = dx * dx + dy * dy
-        momentum = ti.exp(-d2 * inv_force_radius) * ti.Vector([fx, fy])
+        factor = ti.exp(-d2 / force_radius)
+        mdir = ti.Vector([dx, dy])
+        momentum = (factor * f_strength * mdir) * dt
         vel = vf[i, j]
         vf[i, j] = vel + momentum
 
@@ -164,11 +171,10 @@ inv_dye_radius = 1.0 / dye_radius
 def impulse_dye(dye: ti.template(), omx: float, omy: float, r: float, g: float,
                 b: float):
     for i, j in dye:
-        render_res = ti.Vector([RENDER_RES_x, RENDER_RES_y])
-        u, v = normalize(ti.Vector([i, j]) + 0.5, render_res)
-        dx, dy = (u - omx), (v - omy)
+        dx, dy = (i + 0.5 - omx), (j + 0.5 - omy)
         d2 = dx * dx + dy * dy
-        impulse = ti.exp(-d2 * inv_dye_radius) * ti.Vector([r, g, b])
+        res = (RENDER_RES_y + RENDER_RES_x) / 2.0
+        impulse =  ti.exp(-d2 * (4 / (res / 15)**2)) * ti.Vector([r, g, b])
         col = dye[i, j]
         col += impulse
         dye[i, j] = col
@@ -288,16 +294,17 @@ def subtract_gradient(vf: ti.template(), pf: ti.template()):
 
 
 def run_impulse_kernels(mouse_data):
-    f_strength = 6000.0
-
-    normed_mxy = mouse_data[2:4]
-    force = mouse_data[0:2] * f_strength * dt
-    impulse_velocity(velocities_pair.cur, float(normed_mxy[0]), float(normed_mxy[1]),
-                     float(force[0]), float(force[1]))
+    pxy = mouse_data[2:4]
+    mdir = mouse_data[0:2]
+    force_strength = 10000
+    impulse_velocity(velocities_pair.cur, force_strength,
+                    float(pxy[0]), float(pxy[1]),
+                    float(mdir[0]), float(mdir[1]))
 
     rgb = mouse_data[4:]
-    impulse_dye(dyes_pair.cur, float(normed_mxy[0]), float(normed_mxy[1]), float(rgb[0]),
-                float(rgb[1]), float(rgb[2]))
+    impulse_dye(dyes_pair.cur,
+                float(pxy[0]), float(pxy[1]),
+                float(rgb[0]), float(rgb[1]), float(rgb[2]))
 
 
 BLOOM_THRESHOLD = 0.6
@@ -456,6 +463,8 @@ class MouseDataGen(object):
         mouse_data = np.array([0] * 8, dtype=np.float32)
         if gui.is_pressed(ti.GUI.LMB):
             mxy = vec2_npf32(gui.get_cursor_pos())
+            mxy[0] *= RENDER_RES_x
+            mxy[1] *= RENDER_RES_y
             if self.prev_mouse is None:
                 self.prev_mouse = mxy
                 # Set lower bound to 0.3 to prevent too dark colors
@@ -464,7 +473,7 @@ class MouseDataGen(object):
                 # self.prev_color = hsv_to_rgb(np.random.random(), sat, 1)
             else:
                 mdir = mxy - self.prev_mouse
-                # mdir = mdir / (np.linalg.norm(mdir) + 1e-5)
+                mdir = mdir / (np.linalg.norm(mdir) + 1e-5)
                 mouse_data[0], mouse_data[1] = mdir[0], mdir[1]
                 mouse_data[2], mouse_data[3] = mxy[0], mxy[1]
                 mouse_data[4:7] = self.prev_color
