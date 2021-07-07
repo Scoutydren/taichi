@@ -233,6 +233,7 @@ void export_lang(py::module &m) {
       .def("make_aot_module_builder", &Program::make_aot_module_builder);
 
   py::class_<AotModuleBuilder>(m, "AotModuleBuilder")
+      .def("add_field", &AotModuleBuilder::add_field)
       .def("add", &AotModuleBuilder::add)
       .def("add_kernel_template", &AotModuleBuilder::add_kernel_template)
       .def("dump", &AotModuleBuilder::dump);
