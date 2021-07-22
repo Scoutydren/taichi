@@ -1,5 +1,6 @@
 from PIL import Image
 import numpy as np
+from numpy.core.fromnumeric import shape
 
 import taichi as ti
 
@@ -88,7 +89,7 @@ def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(),
     ti.static_assert(dst.shape == src.shape,
                      "needs src and dst fields to be same shape")
     ti.block_dim(1024)
-    scale = pow(2, height_depth * 10.0)
+    scale = height_depth * src.shape[0]
     for P in ti.grouped(src):
         # for each sample direction
         accum_ao = 0.0
@@ -121,8 +122,8 @@ def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(),
                 max_ao = lerp(max_ao, max_d, interp)
             # not sure what "sizeMin" in SD graph means, here use a magic number 10.0
             # would be better if we have "pow2" operator
-
-            max_ao *= scale
+            max_ao *= (scale * 2)
+            max_ao = max_ao / (ti.sqrt(1 + max_ao * max_ao))
             accum_ao += max_ao
         dst[P] = 1.0 - accum_ao / DIR_NUM
 
@@ -133,7 +134,7 @@ init_noise()
 # hbao_sd(1, 0.1, in_tex, out_tex)
 
 # for i in range(1000):
-hbao_sd(100, 0.9, in_tex, out_tex)
+hbao_sd(1, 0.1, in_tex, out_tex)
 ti.kernel_profiler_print()
 while True:
     gui.set_image(out_tex.to_numpy())
