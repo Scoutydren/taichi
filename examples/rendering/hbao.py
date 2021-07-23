@@ -89,12 +89,14 @@ def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(),
     ti.static_assert(dst.shape == src.shape,
                      "needs src and dst fields to be same shape")
     ti.block_dim(1024)
-    scale = height_depth * src.shape[0]
+    sizemin = src.shape[0]
+    scale = height_depth * sizemin
     for P in ti.grouped(src):
         # for each sample direction
         accum_ao = 0.0
         pixel_depth = src[P]
         for dir_id in ti.static(range(DIR_NUM)):
+            #may add some angle jittering
             dir_ang = dir_id * 2.0 * PI / DIR_NUM
             dir_vec = ti.Vector([ti.cos(dir_ang), ti.sin(dir_ang)])
             # for each step
@@ -112,12 +114,12 @@ def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(),
                 offset = offset << 1
                 offset_inv = offset_inv * 0.5
                 # we see it as depth contribution normalized by offset
-                d = (sample_depth - pixel_depth) * offset_inv
+                d = (sample_depth - pixel_depth - 0.5) * offset_inv
                 max_d = ti.max(max_d, d)
                 # would be better if we have "saturate" operator
                 # radius here basically decide how many miplevel will contribute I guess
                 interp = min(
-                    max(((1 << (STEP_NUM_SD - mip_level)) * radius - 1.0),
+                    max(((1 << (ti.log(sizemin) - mip_level)) * radius - 1.0),
                         0.0), 1.0)
                 max_ao = lerp(max_ao, max_d, interp)
             # not sure what "sizeMin" in SD graph means, here use a magic number 10.0
@@ -134,7 +136,7 @@ init_noise()
 # hbao_sd(1, 0.1, in_tex, out_tex)
 
 # for i in range(1000):
-hbao_sd(1, 0.1, in_tex, out_tex)
+hbao_sd(1, 0.01, in_tex, out_tex)
 ti.kernel_profiler_print()
 while True:
     gui.set_image(out_tex.to_numpy())
