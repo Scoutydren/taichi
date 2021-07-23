@@ -98,6 +98,8 @@ def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(),
         for dir_id in ti.static(range(DIR_NUM)):
             #may add some angle jittering
             dir_ang = dir_id * 2.0 * PI / DIR_NUM
+            # rand = noise_tex[P & 0x11]
+            # dir_ang = (dir_id + rand.x) * 2.0 * PI / DIR_NUM
             dir_vec = ti.Vector([ti.cos(dir_ang), ti.sin(dir_ang)])
             # for each step
             # substance designer use a power-exponent step size like cone tracing, rather than fixed step
@@ -114,16 +116,14 @@ def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(),
                 offset = offset << 1
                 offset_inv = offset_inv * 0.5
                 # we see it as depth contribution normalized by offset
-                d = (sample_depth - pixel_depth - 0.5) * offset_inv
+                d = (sample_depth - pixel_depth) * offset_inv * 0.5
                 max_d = ti.max(max_d, d)
                 # would be better if we have "saturate" operator
                 # radius here basically decide how many miplevel will contribute I guess
                 interp = min(
-                    max(((1 << (ti.log(sizemin) - mip_level)) * radius - 1.0),
+                    max(((1 << (STEP_NUM_SD - mip_level)) * radius - 1.0),
                         0.0), 1.0)
                 max_ao = lerp(max_ao, max_d, interp)
-            # not sure what "sizeMin" in SD graph means, here use a magic number 10.0
-            # would be better if we have "pow2" operator
             max_ao *= (scale * 2)
             max_ao = max_ao / (ti.sqrt(1 + max_ao * max_ao))
             accum_ao += max_ao
@@ -134,10 +134,13 @@ gui = ti.GUI('HBAO', res=(res, res))
 init_noise()
 # hbao(1, 0.1, in_tex, out_tex)
 # hbao_sd(1, 0.1, in_tex, out_tex)
-
+height = gui.slider('height', 0, 1, step=0.1)
+radius = gui.slider('radius', 0, 1, step=0.1)
+height.value = 1.0
+radius.value = 1.0
 # for i in range(1000):
-hbao_sd(1, 0.01, in_tex, out_tex)
 ti.kernel_profiler_print()
 while True:
+    hbao_sd(height.value, radius.value, in_tex, out_tex)
     gui.set_image(out_tex.to_numpy())
     gui.show()
