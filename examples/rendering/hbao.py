@@ -5,8 +5,8 @@ import taichi_glsl as ts
 
 import taichi as ti
 
-ti.init(arch=ti.cpu, cpu_max_num_threads=1)
-# ti.init(arch=ti.gpu, kernel_profiler=True)
+# ti.init(arch=ti.cpu, cpu_max_num_threads=1)
+ti.init(arch=ti.gpu, kernel_profiler=True)
 res = 2048
 DIR_NUM = 16
 STEP_NUM = 8
@@ -17,6 +17,8 @@ INV_2PI = 1.0 / (2 * PI)
 in_tex = ti.field(ti.f32, shape=(res, res))
 out_tex = ti.field(ti.f32, shape=(res, res))
 mipmap_tex = ti.field(ti.f32, shape=(res, res))
+
+mipmap_tex_new = ti.field(ti.f32, shape=(STEP_NUM_SD, res, res))
 
 noise_tex = ti.Vector.field(3, ti.f32, shape=(16, 16))
 
@@ -90,6 +92,26 @@ def hbao(radius: ti.f32, height_depth: ti.f32, src: ti.template(),
 def lerp(x: ti.f32, y: ti.f32, w: ti.f32):
     return x + (y - x) * w
 
+@ti.func
+def sample(qf, u, v):
+    I = ti.Vector([int(u), int(v)])
+    I = max(0, min(res - 1, I))
+    return qf[I]
+
+@ti.func
+def bilerp(vf, p):
+    u, v = p
+    s, t = u - 0.5, v - 0.5
+    # floor
+    iu, iv = ti.floor(s), ti.floor(t)
+    # fract
+    fu, fv = s - iu, t - iv
+    a = sample(vf, iu, iv)
+    b = sample(vf, iu + 1, iv)
+    c = sample(vf, iu, iv + 1)
+    d = sample(vf, iu + 1, iv + 1)
+    return lerp(lerp(a, b, fu), lerp(c, d, fu), fv)
+
 
 @ti.kernel
 def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(), mipmap: ti.template(),
@@ -114,15 +136,12 @@ def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(), mipmap: ti
             offset_inv = 1.0
             for mip_level in ti.static(range(1, STEP_NUM_SD + 1)):
                 sample_offset = offset * dir_vec
-                # S = P + sample_offset
                 S = ti.cast(P + sample_offset, int)
                 S = S & (res - 1)
                 mip_res = res >> mip_level
                 mip_S = S / res * mip_res
-                x = ti.cast(mip_S[0], int)
-                y = ti.cast(mip_S[1], int)
-                sample_depth = mipmap[x & (res - 1), (mip_res + y) & (res - 1)]
-                # sample_depth = src[S[0] & 2047, S[1] & 2047]
+                v = ti.Vector([mip_S[0], mip_S[1] + mip_res])
+                sample_depth = bilerp(mipmap, v)
                 # we upres offset for next level, deliberately upres before dividing depth because it's so in SD
                 offset = offset << 1
                 offset_inv = offset_inv * 0.5
@@ -139,6 +158,12 @@ def hbao_sd(radius: ti.f32, height_depth: ti.f32, src: ti.template(), mipmap: ti
             max_ao = max_ao / (ti.sqrt(1 + max_ao * max_ao))
             accum_ao += max_ao
         dst[P] = 1.0 - accum_ao / DIR_NUM
+
+@ti.kernel
+def generate_mipmap(src: ti.template(), dst: ti.template()):
+    for i, j in ti.template():
+        for mip_level in range(1, STEP_NUM_SD + 1):
+            dst[mip_level, i, j] = src[i, j]
 
 @ti.func
 def sample_mipmap_func(src:ti.template(), dst:ti.template(), x, y, mip_level):
@@ -189,17 +214,17 @@ img = np.array(Image.open('source.png'))
 Image.fromarray(mipmap(img)).save('mipmap.png')
 
 gui = ti.GUI('HBAO', res=(res, res))
-init_noise()
+hbao_sd(1, 0.1, in_tex, mipmap_tex, out_tex)
 # hbao(1, 0.1, in_tex, out_tex)
 # hbao_sd(1, 0.1, in_tex, out_tex)
-height = gui.slider('height', 0, 1, step=0.1)
-radius = gui.slider('radius', 0, 1, step=0.1)
-height.value = 1.0
-radius.value = 1.0
+# height = gui.slider('height', 0, 1, step=0.1)
+# radius = gui.slider('radius', 0, 1, step=0.1)
+# height.value = 1.0
+# radius.value = 1.0
 # for i in range(1000):
 ti.kernel_profiler_print()
-while True:
+# while True:
     # sample_mipmap(mipmap_tex, out_tex, 10)
-    hbao_sd(height.value, radius.value, in_tex, mipmap_tex, out_tex)
-    gui.set_image(out_tex.to_numpy())
-    gui.show()
+    # hbao_sd(height.value, radius.value, in_tex, mipmap_tex, out_tex)
+    # gui.set_image(out_tex.to_numpy())
+    # gui.show()
