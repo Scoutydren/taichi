@@ -1,5 +1,7 @@
 #include "taichi/backends/metal/kernel_manager.h"
 
+#import "Metal/Metal.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -649,7 +651,7 @@ class KernelManager::Impl {
                               const KernelContextAttributes &ctx_attribs) {
     TI_ASSERT(compiled_taichi_kernels_.find(taichi_kernel_name) ==
               compiled_taichi_kernels_.end());
-
+    NSLog(@"test objc functionality");
     if (config_->print_kernel_llvm_ir) {
       // If users have enabled |print_kernel_llvm_ir|, it probably means that
       // they want to see the compiled code on the given arch. Maybe rename this

@@ -7,7 +7,7 @@ SNodeTreeBufferManager::SNodeTreeBufferManager(Program *prog) : prog_(prog) {
   TI_TRACE("SNode tree buffer manager created.");
 }
 
-void SNodeTreeBufferManager::merge_and_insert(Ptr ptr, std::size_t size) {
+void SNodeTreeBufferManager::merge_and_insert(Ptr_ti ptr, std::size_t size) {
   // merge with right block
   if (ptr_map_[ptr + size]) {
     std::size_t tmp = ptr_map_[ptr + size];
@@ -30,7 +30,7 @@ void SNodeTreeBufferManager::merge_and_insert(Ptr ptr, std::size_t size) {
   ptr_map_[ptr] = size;
 }
 
-Ptr SNodeTreeBufferManager::allocate(JITModule *runtime_jit,
+Ptr_ti SNodeTreeBufferManager::allocate(JITModule *runtime_jit,
                                      void *runtime,
                                      std::size_t size,
                                      std::size_t alignment,
@@ -40,7 +40,7 @@ Ptr SNodeTreeBufferManager::allocate(JITModule *runtime_jit,
   if (set_it == size_set_.end()) {
     runtime_jit->call<void *, std::size_t, std::size_t>(
         "runtime_snode_tree_allocate_aligned", runtime, size, alignment);
-    auto ptr = prog_->fetch_result<Ptr>(taichi_result_buffer_runtime_query_id);
+    auto ptr = prog_->fetch_result<Ptr_ti>(taichi_result_buffer_runtime_query_id);
     roots_[snode_tree_id] = ptr;
     sizes_[snode_tree_id] = size;
     return ptr;
@@ -67,7 +67,7 @@ void SNodeTreeBufferManager::destroy(SNodeTree *snode_tree) {
     TI_DEBUG("SNode tree {} destroy failed.", snode_tree_id);
     return;
   }
-  Ptr ptr = roots_[snode_tree_id];
+  Ptr_ti ptr = roots_[snode_tree_id];
   merge_and_insert(ptr, size);
   TI_DEBUG("SNode tree {} destroyed.", snode_tree_id);
 }

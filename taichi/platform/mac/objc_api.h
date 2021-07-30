@@ -8,9 +8,9 @@
 #include <objc/objc.h>
 #include <objc/runtime.h>
 
-extern "C" {
-void NSLog(/* NSString */ id format, ...);
-}
+// extern "C" {
+// void NSLog_ti(/* NSString */ id format, ...);
+// }
 
 namespace taichi {
 namespace mac {
@@ -93,7 +93,7 @@ R ns_array_object_at_index(TI_NSArray *na, int i) {
   return cast_call<R>(na, "objectAtIndex:", i);
 }
 
-void ns_log_object(id obj);
+// void ns_log_object(id obj);
 
 struct TI_NSAutoreleasePool;
 
