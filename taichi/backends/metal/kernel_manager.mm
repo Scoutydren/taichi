@@ -85,7 +85,7 @@ class BufferMemoryView {
 // Metal kernels mapped by a single Taichi kernel. This map stores those buffers
 // from their enum. Each CompiledMtlKernelBase can then decide which specific
 // buffers they will need to use in a launch.
-using InputBuffersMap = std::unordered_map<BufferEnum, MTLBuffer *>;
+using InputBuffersMap = std::unordered_map<BufferEnum, id<MTLBuffer>>;
 
 // Info for launching a compiled Metal kernel
 class CompiledMtlKernelBase {
@@ -94,17 +94,15 @@ class CompiledMtlKernelBase {
     bool is_jit_evaluator;
     const CompileConfig *config;
     const KernelAttributes *kernel_attribs;
-    MTLDevice *device;
-    MTLFunction *mtl_func;
+    id<MTLDevice> device;
+    id<MTLFunction> mtl_func;
   };
 
   explicit CompiledMtlKernelBase(Params &params)
       : kernel_attribs_(*params.kernel_attribs),
         config_(params.config),
         is_jit_evalutor_(params.is_jit_evaluator),
-        pipeline_state_(
-            new_compute_pipeline_state_with_function(params.device,
-                                                     params.mtl_func)) {
+        pipeline_state_([params.device newComputePipelineStateWithFunction:params.mtl_func error:nil]) {
     TI_ASSERT(pipeline_state_ != nullptr);
   }
 
@@ -115,28 +113,29 @@ class CompiledMtlKernelBase {
   }
 
   virtual void launch(InputBuffersMap &input_buffers,
-                      MTLCommandBuffer *command_buffer) = 0;
+                      id<MTLCommandBuffer> command_buffer) = 0;
 
  protected:
-  using BindBuffers = std::vector<std::pair<MTLBuffer *, BufferEnum>>;
+  using BindBuffers = std::vector<std::pair<id<MTLBuffer>, BufferEnum>>;
 
   void launch_if_not_empty(BindBuffers buffers,
-                           MTLCommandBuffer *command_buffer) {
+                           id<MTLCommandBuffer> command_buffer) {
     const int num_threads = kernel_attribs_.advisory_total_num_threads;
     if (num_threads == 0) {
       return;
     }
     TI_ASSERT(buffers.size() == kernel_attribs_.buffers.size());
-    auto encoder = new_compute_command_encoder(command_buffer);
+    id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
     TI_ASSERT(encoder != nullptr);
 
-    set_label(encoder.get(), kernel_attribs_.name);
-    set_compute_pipeline_state(encoder.get(), pipeline_state_.get());
+    encoder.label = [NSString stringWithUTF8String:kernel_attribs_.name.c_str()];
+    
+    [encoder setComputePipelineState:pipeline_state_];
 
     for (int bi = 0; bi < buffers.size(); ++bi) {
       auto &b = buffers[bi];
       TI_ASSERT(b.second == kernel_attribs_.buffers[bi]);
-      set_mtl_buffer(encoder.get(), b.first, /*offset=*/0, bi);
+      [encoder setBuffer:b.first offset:0 atIndex:bi];
     }
 
     const auto tgs = get_thread_grid_settings(
@@ -163,9 +162,9 @@ class CompiledMtlKernelBase {
         "Dispatching Metal kernel {}, num_threadgroups={} "
         "num_threads_per_group={}",
         kernel_attribs_.name, tgs.num_threadgroups, tgs.num_threads_per_group);
-    dispatch_threadgroups(encoder.get(), tgs.num_threadgroups,
-                          tgs.num_threads_per_group);
-    end_encoding(encoder.get());
+    [encoder dispatchThreadgroups:MTLSizeMake(tgs.num_threadgroups, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(tgs.num_threads_per_group, 1, 1)];
+    [encoder endEncoding];
   }
 
   struct ThreadGridSettings {
@@ -176,8 +175,7 @@ class CompiledMtlKernelBase {
   ThreadGridSettings get_thread_grid_settings(
       int advisory_num_threads,
       int advisory_num_threads_per_group) {
-    int num_threads_per_group =
-        get_max_total_threads_per_threadgroup(pipeline_state_.get());
+    int num_threads_per_group = [pipeline_state_ maxTotalThreadsPerThreadgroup];
     // Sometimes it is helpful to limit the maximum GPU block dim for the
     // kernels. E.g., when you are generating iPhone shaders on a Mac.
     const int prescribed_block_dim = config_->max_block_dim;
@@ -205,7 +203,7 @@ class CompiledMtlKernelBase {
   KernelAttributes kernel_attribs_;
   const CompileConfig *const config_;
   const bool is_jit_evalutor_;
-  nsobj_unique_ptr<MTLComputePipelineState> pipeline_state_;
+  id<MTLComputePipelineState> pipeline_state_;
 };
 
 // Metal kernel derived from a user Taichi kernel
@@ -213,7 +211,7 @@ class UserMtlKernel : public CompiledMtlKernelBase {
  public:
   using CompiledMtlKernelBase::CompiledMtlKernelBase;
   void launch(InputBuffersMap &input_buffers,
-              MTLCommandBuffer *command_buffer) override {
+              id<MTLCommandBuffer> command_buffer) override {
     // 0 is valid for |num_threads|!
     TI_ASSERT(kernel_attribs_.advisory_total_num_threads >= 0);
     BindBuffers buffers;
@@ -235,18 +233,17 @@ class SparseRuntimeMtlKernelBase : public CompiledMtlKernelBase {
       : CompiledMtlKernelBase(params),
         args_mem_(
             std::make_unique<BufferMemoryView>(args_size, params.mem_pool)),
-        args_buffer_(new_mtl_buffer_no_copy(params.device,
-                                            args_mem_->ptr(),
-                                            args_mem_->size())) {
+        args_buffer_([params.device newBufferWithBytes:args_mem_->ptr() 
+          length:args_mem_->size() options:MTLResourceStorageModeShared]) {
     TI_ASSERT(args_buffer_ != nullptr);
   }
 
   void launch(InputBuffersMap &input_buffers,
-              MTLCommandBuffer *command_buffer) override {
+              id<MTLCommandBuffer> command_buffer) override {
     BindBuffers buffers;
     for (const auto b : kernel_attribs_.buffers) {
       if (b == BufferEnum::Context) {
-        buffers.push_back({args_buffer_.get(), b});
+        buffers.push_back({args_buffer_, b});
       } else {
         buffers.push_back({input_buffers.find(b)->second, b});
       }
@@ -256,7 +253,7 @@ class SparseRuntimeMtlKernelBase : public CompiledMtlKernelBase {
 
  protected:
   std::unique_ptr<BufferMemoryView> args_mem_;
-  nsobj_unique_ptr<MTLBuffer> args_buffer_;
+  id<MTLBuffer> args_buffer_;
 };
 
 class ListgenOpMtlKernel : public SparseRuntimeMtlKernelBase {
@@ -291,7 +288,10 @@ class ListgenOpMtlKernel : public SparseRuntimeMtlKernelBase {
         params.kernel_attribs->name,
         params.kernel_attribs->advisory_total_num_threads, mem[0], mem[1],
         mem[2]);
-    did_modify_range(args_buffer_.get(), /*location=*/0, args_mem_->size());
+    NSRange range;
+    range.location = 0;
+    range.length = args_mem_->size();
+    [args_buffer_ didModifyRange:range];
   }
 };
 
@@ -311,7 +311,10 @@ class GcOpMtlKernel : public SparseRuntimeMtlKernelBase {
     TI_DEBUG("Registered GcOpMtlKernel: name={} num_threads={} snode_id={}",
              params.kernel_attribs->name,
              params.kernel_attribs->advisory_total_num_threads, mem[0]);
-    did_modify_range(args_buffer_.get(), /*location=*/0, args_mem_->size());
+    NSRange range;
+    range.location = 0;
+    range.length = args_mem_->size();
+    [args_buffer_ didModifyRange:range];
   }
 };
 
@@ -324,7 +327,7 @@ class CompiledTaichiKernel {
     const TaichiKernelAttributes *ti_kernel_attribs;
     const KernelContextAttributes *ctx_attribs;
     const SNodeDescriptorsMap *snode_descriptors;
-    MTLDevice *device;
+    id<MTLDevice> device;
     MemoryPool *mem_pool;
     KernelProfilerBase *profiler;
     const CompileConfig *compile_config;
@@ -334,9 +337,12 @@ class CompiledTaichiKernel {
       : ti_kernel_attribs(*params.ti_kernel_attribs),
         ctx_attribs(*params.ctx_attribs) {
     auto *const device = params.device;
-    auto kernel_lib = new_library_with_source(
-        device, params.mtl_source_code, params.compile_config->fast_math,
-        infer_msl_version(params.ti_kernel_attribs->used_features));
+    MTLCompileOptions* compileOptions = [MTLCompileOptions new];
+    compileOptions.languageVersion = MTLLanguageVersion1_1;
+    NSError* compileError;
+    NSString* src_code = [NSString stringWithUTF8String:params.mtl_source_code.c_str()];
+    id<MTLLibrary> kernel_lib = [device newLibraryWithSource:src_code
+     options:compileOptions error:&compileError];
     if (kernel_lib == nullptr) {
       TI_ERROR("Failed to compile Metal kernel! Generated code:\n\n{}",
                params.mtl_source_code);
@@ -351,7 +357,8 @@ class CompiledTaichiKernel {
            ActionArg("filename", fn)});
     }
     for (const auto &ka : ti_kernel_attribs.mtl_kernels_attribs) {
-      auto mtl_func = new_function_with_name(kernel_lib.get(), ka.name);
+      id<MTLFunction> mtl_func = [kernel_lib newFunctionWithName: 
+                          [NSString stringWithUTF8String:ka.name.c_str()]];
       TI_ASSERT(mtl_func != nullptr);
       // Note that CompiledMtlKernel doesn't own |kernel_func|.
       std::unique_ptr<CompiledMtlKernelBase> kernel = nullptr;
@@ -362,7 +369,7 @@ class CompiledTaichiKernel {
         kparams.is_jit_evaluator = false;
         kparams.config = params.compile_config;
         kparams.device = device;
-        kparams.mtl_func = mtl_func.get();
+        kparams.mtl_func = mtl_func;
         kparams.mem_pool = params.mem_pool;
         kparams.snode_descriptors = params.snode_descriptors;
         kernel = std::make_unique<ListgenOpMtlKernel>(kparams);
@@ -372,7 +379,7 @@ class CompiledTaichiKernel {
         kparams.is_jit_evaluator = false;
         kparams.config = params.compile_config;
         kparams.device = device;
-        kparams.mtl_func = mtl_func.get();
+        kparams.mtl_func = mtl_func;
         kparams.mem_pool = params.mem_pool;
         kernel = std::make_unique<GcOpMtlKernel>(kparams);
       } else {
@@ -381,7 +388,7 @@ class CompiledTaichiKernel {
         kparams.is_jit_evaluator = ti_kernel_attribs.is_jit_evaluator;
         kparams.config = params.compile_config;
         kparams.device = device;
-        kparams.mtl_func = mtl_func.get();
+        kparams.mtl_func = mtl_func;
         kernel = std::make_unique<UserMtlKernel>(kparams);
       }
 
@@ -399,8 +406,7 @@ class CompiledTaichiKernel {
             {ActionArg("ti_kernel_name", std::string(ti_kernel_attribs.name)),
              ActionArg("size_in_bytes", (int64)ctx_attribs.total_bytes())});
       }
-      ctx_buffer =
-          new_mtl_buffer_no_copy(device, ctx_mem->ptr(), ctx_mem->size());
+      ctx_buffer = [device newBufferWithBytes:ctx_mem->ptr() length:ctx_mem->size() options:MTLResourceStorageModeShared];
     }
   }
 
@@ -410,7 +416,7 @@ class CompiledTaichiKernel {
   TaichiKernelAttributes ti_kernel_attribs;
   KernelContextAttributes ctx_attribs;
   std::unique_ptr<BufferMemoryView> ctx_mem;
-  nsobj_unique_ptr<MTLBuffer> ctx_buffer;
+  id<MTLBuffer> ctx_buffer;
 };
 
 class HostMetalCtxBlitter {
@@ -424,11 +430,11 @@ class HostMetalCtxBlitter {
         host_ctx_(host_ctx),
         host_result_buffer_(host_result_buffer),
         kernel_ctx_mem_(kernel.ctx_mem.get()),
-        kernel_ctx_buffer_(kernel.ctx_buffer.get()),
+        kernel_ctx_buffer_(kernel.ctx_buffer),
         kernel_name_(kernel_name) {
   }
 
-  inline MTLBuffer *ctx_buffer() {
+  inline id<MTLBuffer> ctx_buffer() {
     return kernel_ctx_buffer_;
   }
 
@@ -477,8 +483,10 @@ class HostMetalCtxBlitter {
     std::memcpy(device_ptr, host_ctx_->extra_args,
                 ctx_attribs_->extra_args_bytes());
 #undef TO_METAL
-    did_modify_range(kernel_ctx_buffer_, /*location=*/0,
-                     kernel_ctx_mem_->size());
+    NSRange range;
+    range.location = 0;
+    range.length = kernel_ctx_mem_->size();
+    [kernel_ctx_buffer_ didModifyRange:range];
   }
 
   void metal_to_host() {
@@ -564,7 +572,7 @@ class HostMetalCtxBlitter {
   Context *const host_ctx_;
   uint64_t *const host_result_buffer_;
   BufferMemoryView *const kernel_ctx_mem_;
-  MTLBuffer *const kernel_ctx_buffer_;
+  id<MTLBuffer> const kernel_ctx_buffer_;
   std::string kernel_name_;
 };
 
@@ -582,16 +590,16 @@ class KernelManager::Impl {
     if (config_->debug) {
       TI_ASSERT(is_metal_api_available());
     }
-    device_ = mtl_create_system_default_device();
+    device_ = MTLCreateSystemDefaultDevice();
     TI_ASSERT(device_ != nullptr);
-    command_queue_ = new_command_queue(device_.get());
+    command_queue_ = [device_ newCommandQueue];
     TI_ASSERT(command_queue_ != nullptr);
     create_new_command_buffer();
     if (compiled_structs_.root_size > 0) {
       root_mem_ = std::make_unique<BufferMemoryView>(
           compiled_structs_.root_size, mem_pool_);
-      root_buffer_ = new_mtl_buffer_no_copy(device_.get(), root_mem_->ptr(),
-                                            root_mem_->size());
+      root_buffer_ = [device_ newBufferWithBytes:root_mem_->ptr()
+        length: root_mem_->size() options:MTLResourceStorageModeShared];
       TI_ASSERT(root_buffer_ != nullptr);
       buffer_meta_data_.root_buffer_size = root_mem_->size();
       TI_DEBUG("Metal root buffer size: {} bytes", root_mem_->size());
@@ -606,9 +614,8 @@ class KernelManager::Impl {
     ActionRecorder::get_instance().record(
         "allocate_global_tmp_buffer",
         {ActionArg("size_in_bytes", (int64)taichi_global_tmp_buffer_size)});
-
-    global_tmps_buffer_ = new_mtl_buffer_no_copy(
-        device_.get(), global_tmps_mem_->ptr(), global_tmps_mem_->size());
+    global_tmps_buffer_ = [device_ newBufferWithBytes:global_tmps_mem_->ptr()
+        length: global_tmps_mem_->size() options:MTLResourceStorageModeShared];
     TI_ASSERT(global_tmps_buffer_ != nullptr);
 
     TI_ASSERT(compiled_structs_.runtime_size > 0);
@@ -616,8 +623,8 @@ class KernelManager::Impl {
         (config_->device_memory_GB * 1024 * 1024 * 1024ULL);
     runtime_mem_ = std::make_unique<BufferMemoryView>(
         compiled_structs_.runtime_size + mem_pool_bytes, mem_pool_);
-    runtime_buffer_ = new_mtl_buffer_no_copy(device_.get(), runtime_mem_->ptr(),
-                                             runtime_mem_->size());
+    runtime_buffer_ = [device_ newBufferWithBytes:runtime_mem_->ptr()
+        length: runtime_mem_->size() options:MTLResourceStorageModeShared];
     buffer_meta_data_.runtime_buffer_size = compiled_structs_.runtime_size;
     TI_DEBUG(
         "Metal runtime buffer size: {} bytes (sizeof(Runtime)={} "
@@ -637,8 +644,8 @@ class KernelManager::Impl {
         runtime_mem_->size());
     print_mem_ = std::make_unique<BufferMemoryView>(
         shaders::kMetalPrintAssertBufferSize, mem_pool_);
-    print_buffer_ = new_mtl_buffer_no_copy(device_.get(), print_mem_->ptr(),
-                                           print_mem_->size());
+    print_buffer_ = [device_ newBufferWithBytes:print_mem_->ptr()
+    length: print_mem_->size() options:MTLResourceStorageModeShared];    
     TI_ASSERT(print_buffer_ != nullptr);
 
     init_runtime(params.root_id);
@@ -651,7 +658,6 @@ class KernelManager::Impl {
                               const KernelContextAttributes &ctx_attribs) {
     TI_ASSERT(compiled_taichi_kernels_.find(taichi_kernel_name) ==
               compiled_taichi_kernels_.end());
-    NSLog(@"test objc functionality");
     if (config_->print_kernel_llvm_ir) {
       // If users have enabled |print_kernel_llvm_ir|, it probably means that
       // they want to see the compiled code on the given arch. Maybe rename this
@@ -664,7 +670,7 @@ class KernelManager::Impl {
     params.ti_kernel_attribs = &ti_kernel_attribs;
     params.ctx_attribs = &ctx_attribs;
     params.snode_descriptors = &compiled_structs_.snode_descriptors;
-    params.device = device_.get();
+    params.device = device_;
     params.mem_pool = mem_pool_;
     params.profiler = profiler_;
     params.compile_config = config_;
@@ -684,18 +690,18 @@ class KernelManager::Impl {
     }
 
     InputBuffersMap input_buffers = {
-        {BufferEnum::Root, root_buffer_.get()},
-        {BufferEnum::GlobalTmps, global_tmps_buffer_.get()},
-        {BufferEnum::Runtime, runtime_buffer_.get()},
-        {BufferEnum::Print, print_buffer_.get()},
+        {BufferEnum::Root, root_buffer_},
+        {BufferEnum::GlobalTmps, global_tmps_buffer_},
+        {BufferEnum::Runtime, runtime_buffer_},
+        {BufferEnum::Print, print_buffer_},
     };
     if (ctx_blitter) {
       ctx_blitter->host_to_metal();
-      input_buffers[BufferEnum::Context] = ctk.ctx_buffer.get();
+      input_buffers[BufferEnum::Context] = ctk.ctx_buffer;
     }
 
     for (const auto &mk : ctk.compiled_mtl_kernels) {
-      mk->launch(input_buffers, cur_command_buffer_.get());
+      mk->launch(input_buffers, cur_command_buffer_);
     }
 
     const auto &used = ctk.ti_kernel_attribs.used_features;
@@ -704,13 +710,13 @@ class KernelManager::Impl {
       // TODO(k-ye): One optimization is to synchronize only when we absolutely
       // need to transfer the data back to host. This includes the cases where
       // an arg is 1) an array, or 2) used as return value.
-      std::vector<MTLBuffer *> buffers_to_blit;
+      std::vector<id<MTLBuffer>> buffers_to_blit;
       if (ctx_blitter) {
         buffers_to_blit.push_back(ctx_blitter->ctx_buffer());
       }
       if (used_print_assert) {
         clear_print_assert_buffer();
-        buffers_to_blit.push_back(print_buffer_.get());
+        buffers_to_blit.push_back(print_buffer_);
       }
       blit_buffers_and_sync(buffers_to_blit);
 
@@ -742,7 +748,7 @@ class KernelManager::Impl {
   std::size_t get_snode_num_dynamically_allocated(SNode *snode) {
     // TODO(k-ye): Have a generic way for querying these sparse runtime stats.
     mac::ScopedAutoreleasePool pool;
-    blit_buffers_and_sync({runtime_buffer_.get()});
+    blit_buffers_and_sync({runtime_buffer_});
     auto *sna = dev_runtime_mirror_.snode_allocators + snode->id;
     // WHY -1?
     //
@@ -965,35 +971,39 @@ class KernelManager::Impl {
       TI_DEBUG("AmbientIndex\n  id={}\n  mem_alloc->next={}\n", snode_id,
                mem_alloc->next);
     }
-
-    did_modify_range(runtime_buffer_.get(), /*location=*/0,
-                     runtime_mem_->size());
+    NSRange range;
+    range.location = 0;
+    range.length = runtime_mem_->size();
+    [runtime_buffer_ didModifyRange:range];
   }
 
   void clear_print_assert_buffer() {
     const auto sz = print_mem_->size();
     std::memset(print_mem_->ptr(), 0, sz);
-    did_modify_range(print_buffer_.get(), /*location=*/0, sz);
+    NSRange range;
+    range.location = 0;
+    range.length = sz;
+    [print_buffer_ didModifyRange:range];
   }
 
   void blit_buffers_and_sync(
-      const std::vector<MTLBuffer *> &buffers_to_blit = {}) {
+      const std::vector<id<MTLBuffer>> &buffers_to_blit = {}) {
     // Blit the Metal buffers because they are in .managed mode.
     // We don't have to blit any of the root, global tmps or runtime buffer.
     // The data in these buffers are purely used inside GPU. When we need to
     // read back data from root buffer to CPU, it's done through that kernel's
     // context buffer.
     if (!buffers_to_blit.empty()) {
-      auto encoder = new_blit_command_encoder(cur_command_buffer_.get());
-      for (auto *b : buffers_to_blit) {
-        synchronize_resource(encoder.get(), b);
+      id<MTLBlitCommandEncoder> encoder = [cur_command_buffer_ blitCommandEncoder];
+      for (id<MTLBuffer> buf : buffers_to_blit) {
+        [encoder synchronizeResource:buf];
       }
-      end_encoding(encoder.get());
+      [encoder endEncoding];
     }
     // Sync
     profiler_->start("metal_synchronize");
-    commit_command_buffer(cur_command_buffer_.get());
-    wait_until_completed(cur_command_buffer_.get());
+    [cur_command_buffer_ commit];
+    [cur_command_buffer_ waitUntilCompleted];
     create_new_command_buffer();
     profiler_->stop();
   }
@@ -1115,10 +1125,10 @@ class KernelManager::Impl {
   }
 
   void create_new_command_buffer() {
-    cur_command_buffer_ = new_command_buffer(command_queue_.get());
+    cur_command_buffer_ = [command_queue_ commandBuffer];
     TI_ASSERT(cur_command_buffer_ != nullptr);
-    set_label(cur_command_buffer_.get(),
-              fmt::format("command_buffer_{}", command_buffer_id_++));
+    cur_command_buffer_.label = [NSString stringWithFormat:@"command_buffer_%lu", command_buffer_id_];
+    command_buffer_id_ += 1;
   }
 
   template <typename T>
@@ -1133,19 +1143,19 @@ class KernelManager::Impl {
   MemoryPool *const mem_pool_;
   uint64_t *const host_result_buffer_;
   KernelProfilerBase *const profiler_;
-  nsobj_unique_ptr<MTLDevice> device_;
-  nsobj_unique_ptr<MTLCommandQueue> command_queue_;
-  nsobj_unique_ptr<MTLCommandBuffer> cur_command_buffer_;
+  id<MTLDevice> device_;
+  id<MTLCommandQueue> command_queue_;
+  id<MTLCommandBuffer> cur_command_buffer_;
   std::size_t command_buffer_id_;
   std::unique_ptr<BufferMemoryView> root_mem_;
-  nsobj_unique_ptr<MTLBuffer> root_buffer_;
+  id<MTLBuffer> root_buffer_;
   std::unique_ptr<BufferMemoryView> global_tmps_mem_;
-  nsobj_unique_ptr<MTLBuffer> global_tmps_buffer_;
+  id<MTLBuffer> global_tmps_buffer_;
   std::unique_ptr<BufferMemoryView> runtime_mem_;
-  nsobj_unique_ptr<MTLBuffer> runtime_buffer_;
+  id<MTLBuffer> runtime_buffer_;
   // TODO: Rename these to 'print_assert_{mem|buffer}_'
   std::unique_ptr<BufferMemoryView> print_mem_;
-  nsobj_unique_ptr<MTLBuffer> print_buffer_;
+  id<MTLBuffer> print_buffer_;
   std::unordered_map<std::string, std::unique_ptr<CompiledTaichiKernel>>
       compiled_taichi_kernels_;
   PrintStringTable print_strtable_;
