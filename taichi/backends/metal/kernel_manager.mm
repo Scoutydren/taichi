@@ -233,8 +233,8 @@ class SparseRuntimeMtlKernelBase : public CompiledMtlKernelBase {
       : CompiledMtlKernelBase(params),
         args_mem_(
             std::make_unique<BufferMemoryView>(args_size, params.mem_pool)),
-        args_buffer_([params.device newBufferWithBytes:args_mem_->ptr() 
-          length:args_mem_->size() options:MTLResourceStorageModeShared]) {
+        args_buffer_([params.device newBufferWithBytesNoCopy:args_mem_->ptr() 
+          length:args_mem_->size() options:MTLResourceStorageModeShared deallocator: nullptr]) {
     TI_ASSERT(args_buffer_ != nullptr);
   }
 
@@ -406,7 +406,8 @@ class CompiledTaichiKernel {
             {ActionArg("ti_kernel_name", std::string(ti_kernel_attribs.name)),
              ActionArg("size_in_bytes", (int64)ctx_attribs.total_bytes())});
       }
-      ctx_buffer = [device newBufferWithBytes:ctx_mem->ptr() length:ctx_mem->size() options:MTLResourceStorageModeShared];
+      ctx_buffer = [device newBufferWithBytesNoCopy:ctx_mem->ptr() length:ctx_mem->size() 
+      options:MTLResourceStorageModeShared deallocator: nullptr];
     }
   }
 
@@ -598,8 +599,8 @@ class KernelManager::Impl {
     if (compiled_structs_.root_size > 0) {
       root_mem_ = std::make_unique<BufferMemoryView>(
           compiled_structs_.root_size, mem_pool_);
-      root_buffer_ = [device_ newBufferWithBytes:root_mem_->ptr()
-        length: root_mem_->size() options:MTLResourceStorageModeShared];
+      root_buffer_ = [device_ newBufferWithBytesNoCopy:root_mem_->ptr()
+        length: root_mem_->size() options:MTLResourceStorageModeShared deallocator: nullptr];
       TI_ASSERT(root_buffer_ != nullptr);
       buffer_meta_data_.root_buffer_size = root_mem_->size();
       TI_DEBUG("Metal root buffer size: {} bytes", root_mem_->size());
@@ -614,8 +615,8 @@ class KernelManager::Impl {
     ActionRecorder::get_instance().record(
         "allocate_global_tmp_buffer",
         {ActionArg("size_in_bytes", (int64)taichi_global_tmp_buffer_size)});
-    global_tmps_buffer_ = [device_ newBufferWithBytes:global_tmps_mem_->ptr()
-        length: global_tmps_mem_->size() options:MTLResourceStorageModeShared];
+    global_tmps_buffer_ = [device_ newBufferWithBytesNoCopy:global_tmps_mem_->ptr()
+        length: global_tmps_mem_->size() options:MTLResourceStorageModeShared deallocator: nullptr];
     TI_ASSERT(global_tmps_buffer_ != nullptr);
 
     TI_ASSERT(compiled_structs_.runtime_size > 0);
@@ -623,8 +624,8 @@ class KernelManager::Impl {
         (config_->device_memory_GB * 1024 * 1024 * 1024ULL);
     runtime_mem_ = std::make_unique<BufferMemoryView>(
         compiled_structs_.runtime_size + mem_pool_bytes, mem_pool_);
-    runtime_buffer_ = [device_ newBufferWithBytes:runtime_mem_->ptr()
-        length: runtime_mem_->size() options:MTLResourceStorageModeShared];
+    runtime_buffer_ = [device_ newBufferWithBytesNoCopy:runtime_mem_->ptr()
+        length: runtime_mem_->size() options:MTLResourceStorageModeShared deallocator: nullptr];
     buffer_meta_data_.runtime_buffer_size = compiled_structs_.runtime_size;
     TI_DEBUG(
         "Metal runtime buffer size: {} bytes (sizeof(Runtime)={} "
@@ -644,8 +645,8 @@ class KernelManager::Impl {
         runtime_mem_->size());
     print_mem_ = std::make_unique<BufferMemoryView>(
         shaders::kMetalPrintAssertBufferSize, mem_pool_);
-    print_buffer_ = [device_ newBufferWithBytes:print_mem_->ptr()
-    length: print_mem_->size() options:MTLResourceStorageModeShared];    
+    print_buffer_ = [device_ newBufferWithBytesNoCopy:print_mem_->ptr()
+    length: print_mem_->size() options:MTLResourceStorageModeShared deallocator: nullptr];    
     TI_ASSERT(print_buffer_ != nullptr);
 
     init_runtime(params.root_id);
