@@ -1,5 +1,6 @@
 # MPM-MLS in 88 lines of Taichi code, originally created by @yuanming-hu
 import taichi as ti
+import os
 
 ti.init(arch=ti.gpu)
 
@@ -81,12 +82,16 @@ def init():
         v[i] = [0, -1]
         J[i] = 1
 
+filename = os.path.basename(__file__)[:-3]
+m = ti.aot.Module(ti.metal)
+m.add_field("x", x)
+m.add_field("v", v)
+m.add_field("C", C)
+m.add_field("J", J)
+m.add_field("grid_v", grid_v)
+m.add_field("grid_m", grid_m)
 
-init()
-gui = ti.GUI('MPM88')
-while gui.running and not gui.get_event(gui.ESCAPE):
-    for s in range(50):
-        substep()
-    gui.clear(0x112F41)
-    gui.circles(x.to_numpy(), radius=1.5, color=0x068587)
-    gui.show()
+m.add_kernel(substep)
+m.add_kernel(init)
+
+m.save('outputaot88', filename)

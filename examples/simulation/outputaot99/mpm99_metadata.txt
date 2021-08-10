@@ -1,0 +1,236 @@
+
+taichi aot data: {
+  metadata: {
+    root_buffer_size: 1114112
+    runtime_buffer_size: 676844
+    randseedoffset_in_runtime_buffer: 414700
+  }
+  kernels: [
+    [0]: {
+      kernel_name: substep
+      ctx_attribs: {
+        arg_attribs_vec_: [
+        ]
+        ret_attribs_vec_: [
+        ]
+        ctx_bytes_: 0
+        extra_args_bytes_: 256
+      }
+      kernel_attribs: {
+        name: mtl_k0003_substep_c4_0
+        mtl_kernels_attribs: [
+          [0]: {
+            name: mtl_k0003_substep_c4_0_0
+            advisory_total_num_threads: 16384
+            task_type: 1
+            buffers: [
+              [0]: 0
+              [1]: 1
+              [2]: 3
+              [3]: 4
+            ]
+            range_for_attribs: {
+              has_value: true
+              value: {
+                begin: 0
+                end: 16384
+                const_begin: true
+                const_end: true
+              }
+            }
+          }
+          [1]: {
+            name: mtl_k0003_substep_c4_0_1
+            advisory_total_num_threads: 16384
+            task_type: 1
+            buffers: [
+              [0]: 0
+              [1]: 1
+              [2]: 3
+              [3]: 4
+            ]
+            range_for_attribs: {
+              has_value: true
+              value: {
+                begin: 0
+                end: 16384
+                const_begin: true
+                const_end: true
+              }
+            }
+          }
+          [2]: {
+            name: mtl_k0003_substep_c4_0_2
+            advisory_total_num_threads: 16384
+            task_type: 1
+            buffers: [
+              [0]: 0
+              [1]: 1
+              [2]: 3
+              [3]: 4
+            ]
+            range_for_attribs: {
+              has_value: true
+              value: {
+                begin: 0
+                end: 16384
+                const_begin: true
+                const_end: true
+              }
+            }
+          }
+          [3]: {
+            name: mtl_k0003_substep_c4_0_3
+            advisory_total_num_threads: 16384
+            task_type: 1
+            buffers: [
+              [0]: 0
+              [1]: 1
+              [2]: 3
+              [3]: 4
+            ]
+            range_for_attribs: {
+              has_value: true
+              value: {
+                begin: 0
+                end: 16384
+                const_begin: true
+                const_end: true
+              }
+            }
+          }
+        ]
+      }
+    }
+    [1]: {
+      kernel_name: initialize
+      ctx_attribs: {
+        arg_attribs_vec_: [
+        ]
+        ret_attribs_vec_: [
+        ]
+        ctx_bytes_: 0
+        extra_args_bytes_: 256
+      }
+      kernel_attribs: {
+        name: mtl_k0005_initialize_c6_0
+        mtl_kernels_attribs: [
+          [0]: {
+            name: mtl_k0005_initialize_c6_0_0
+            advisory_total_num_threads: 9000
+            task_type: 1
+            buffers: [
+              [0]: 0
+              [1]: 1
+              [2]: 3
+              [3]: 4
+            ]
+            range_for_attribs: {
+              has_value: true
+              value: {
+                begin: 0
+                end: 9000
+                const_begin: true
+                const_end: true
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+  tmpl_kernels: [
+  ]
+  fields: [
+    [0]: {
+      field_name: x
+      dtype: 0
+      dtype_name: float
+      shape: [
+        [0]: 9000
+      ]
+      is_scalar: false
+      row_num: 1
+      column_num: 2
+    }
+    [1]: {
+      field_name: v
+      dtype: 0
+      dtype_name: float
+      shape: [
+        [0]: 9000
+      ]
+      is_scalar: false
+      row_num: 1
+      column_num: 2
+    }
+    [2]: {
+      field_name: C
+      dtype: 0
+      dtype_name: float
+      shape: [
+        [0]: 9000
+      ]
+      is_scalar: false
+      row_num: 2
+      column_num: 2
+    }
+    [3]: {
+      field_name: F
+      dtype: 0
+      dtype_name: float
+      shape: [
+        [0]: 9000
+      ]
+      is_scalar: false
+      row_num: 2
+      column_num: 2
+    }
+    [4]: {
+      field_name: material
+      dtype: 4
+      dtype_name: int32_t
+      shape: [
+        [0]: 9000
+      ]
+      is_scalar: true
+      row_num: 1
+      column_num: 1
+    }
+    [5]: {
+      field_name: Jp
+      dtype: 0
+      dtype_name: float
+      shape: [
+        [0]: 9000
+      ]
+      is_scalar: true
+      row_num: 1
+      column_num: 1
+    }
+    [6]: {
+      field_name: grid_v
+      dtype: 0
+      dtype_name: float
+      shape: [
+        [0]: 128
+        [1]: 128
+      ]
+      is_scalar: false
+      row_num: 1
+      column_num: 2
+    }
+    [7]: {
+      field_name: grid_m
+      dtype: 0
+      dtype_name: float
+      shape: [
+        [0]: 128
+        [1]: 128
+      ]
+      is_scalar: true
+      row_num: 1
+      column_num: 1
+    }
+  ]
+}
