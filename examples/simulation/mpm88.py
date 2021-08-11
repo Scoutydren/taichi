@@ -78,9 +78,20 @@ def substep():
 @ti.kernel
 def init():
     for i in range(n_particles):
-        x[i] = [ti.random() * 0.4 + 0.2, ti.random() * 0.4 + 0.2]
+        x1 = (i // 91) / 91
+        x2 = (i % 91) / 91
+        x[i] = [x1 * 0.4 + 0.2, x2 * 0.4 + 0.2]
         v[i] = [0, -1]
         J[i] = 1
+
+# init()
+# gui = ti.GUI('MPM88')
+# while gui.running and not gui.get_event(gui.ESCAPE):
+#     for s in range(50):
+#         substep()
+#     gui.clear(0x112F41)
+#     gui.circles(x.to_numpy(), radius=1.5, color=0x068587)
+#     gui.show()
 
 filename = os.path.basename(__file__)[:-3]
 m = ti.aot.Module(ti.metal)

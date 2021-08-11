@@ -676,7 +676,7 @@ using AdStackPtr = thread byte *; inline thread uint32_t * mtl_ad_stack_n(AdStac
 
 constant constexpr int kMetalNumBitsPerPrintMsgType = 4; constant constexpr int kMetalNumPrintMsgTypePerI32 = sizeof(int32_t) * 8 / kMetalNumBitsPerPrintMsgType; constant constexpr int kMetalPrintMsgTypeWidthMask = ((1 << kMetalNumBitsPerPrintMsgType) - 1); [[maybe_unused]] constexpr inline int mtl_compute_num_print_msg_typemasks( int num_entries) { return (num_entries + kMetalNumPrintMsgTypePerI32 - 1) / kMetalNumPrintMsgTypePerI32; } [[maybe_unused]] constexpr inline int mtl_compute_print_msg_bytes( int num_entries) { const int sz = sizeof(int32_t) * (1 + mtl_compute_num_print_msg_typemasks(num_entries) + num_entries); return sz; } class PrintMsg { public: enum Type { I32 = 1, U32 = 2, F32 = 3, Str = 4 }; PrintMsg(device int32_t *buf, int num_entries) : mask_buf_(buf), data_buf_(buf + mtl_compute_num_print_msg_typemasks(num_entries)) { } void pm_set_i32(int i, int x) { set_entry(i, x, Type::I32); } void pm_set_u32(int i, uint x) { const int32_t ix = static_cast<int32_t>(x); set_entry(i, ix, Type::U32); } void pm_set_f32(int i, float x) { const int32_t ix = *reinterpret_cast<thread int32_t *>(&x); set_entry(i, ix, Type::F32); } void pm_set_str(int i, int str_id) { set_entry(i, str_id, Type::Str); } Type pm_get_type(int i) { const int mask_i = i / kMetalNumPrintMsgTypePerI32; const int i_in_mask = i % kMetalNumPrintMsgTypePerI32; int mask = mask_buf_[mask_i]; mask >>= typemask_shift(i_in_mask); mask &= kMetalPrintMsgTypeWidthMask; return (Type)mask; } int32_t pm_get_data(int i) { return data_buf_[i]; } private: void set_entry(int i, int32_t x, Type ty) { const int mask_i = i / kMetalNumPrintMsgTypePerI32; const int i_in_mask = i % kMetalNumPrintMsgTypePerI32; int mask = ((int)ty & kMetalPrintMsgTypeWidthMask); mask <<= typemask_shift(i_in_mask); mask_buf_[mask_i] |= mask; data_buf_[i] = x; } inline static int typemask_shift(int i_in_mask) { return (kMetalNumPrintMsgTypePerI32 - 1 - i_in_mask) * kMetalNumBitsPerPrintMsgType; } device int32_t *mask_buf_; device int32_t *data_buf_; }; struct AssertRecorderData { atomic_int flag; int32_t num_args; }; class AssertRecorder { public: explicit AssertRecorder(device byte * addr) : ac_(reinterpret_cast<device AssertRecorderData *>(addr)) { } bool mark_first_failure() { return atomic_exchange_explicit(&(ac_->flag), 1, metal::memory_order_relaxed) == 0; } void set_num_args(int n) { ac_->num_args = n; } device int32_t *msg_buf_addr() { return reinterpret_cast<device int32_t *>(ac_ + 1); } private: device AssertRecorderData *ac_; }; constant constexpr int kMetalMaxNumAssertArgs = 64; constant constexpr int kMetalAssertBufferSize = sizeof(AssertRecorderData) + mtl_compute_print_msg_bytes(kMetalMaxNumAssertArgs); struct PrintMsgAllocator { atomic_int next; }; constant constexpr int kMetalPrintAssertBufferSize = 2 * 1024 * 1024; constant constexpr int kMetalPrintMsgsMaxQueueSize = kMetalPrintAssertBufferSize - sizeof(PrintMsgAllocator) - kMetalAssertBufferSize; [[maybe_unused]] device int32_t * mtl_print_alloc_buf(device PrintMsgAllocator *pa, int num_entries) { const int sz = mtl_compute_print_msg_bytes(num_entries); const int cur = atomic_fetch_add_explicit(&(pa->next), sz, metal::memory_order_relaxed); if (cur + sz >= kMetalPrintMsgsMaxQueueSize) { return (device int32_t *)0; } device byte *data_begin = reinterpret_cast<device byte *>(pa + 1); device int32_t *ptr = reinterpret_cast<device int32_t *>(data_begin + cur); *ptr = num_entries; return (ptr + 1); }
 
-void mtl_k0005_initialize_c6_0_0_func(
+void mtl_k0006_initialize_c6_0_0_func(
     device byte* root_addr,
     device byte* global_tmps_addr,
     device byte* runtime_addr,
@@ -688,73 +688,81 @@ void mtl_k0005_initialize_c6_0_0_func(
   AssertRecorder assert_rec_(print_assert_addr);
   device auto* print_alloc_ = reinterpret_cast<device PrintMsgAllocator*>(print_assert_addr + 300);
   const int tmp1 = linear_loop_idx_;
-  const auto tmp2 = metal_rand_f32(rand_state_);
-  const auto tmp3 = metal_rand_f32(rand_state_);
-  constexpr float tmp4 = 0.2;
-  const float tmp5 = (tmp2 * tmp4);
-  constexpr float tmp6 = 0.3;
-  const float tmp7 = (tmp5 + tmp6);
-  constexpr int32_t tmp8 = 3000;
-  const int32_t tmp8452 = (tmp1 / tmp8);
-  constexpr int32_t tmp8453 = 0;
-  const int32_t tmp8454 = -(tmp1 < tmp8453);
-  const int32_t tmp8456 = (tmp8452 * tmp8);
-  const int32_t tmp8457 = -(tmp8454 != tmp8453);
-  const int32_t tmp8458 = -(tmp1 != tmp8453);
-  const int32_t tmp8459 = -(tmp8456 != tmp1);
-  const int32_t tmp8460 = (tmp8457 & tmp8458);
-  const int32_t tmp8461 = (tmp8460 & tmp8459);
-  const int32_t tmp8462 = (tmp8452 + tmp8461);
-  const float tmp10 = static_cast<float>(tmp8462);
-  constexpr float tmp11 = 0.1;
-  const float tmp12 = (tmp10 * tmp11);
-  const float tmp13 = (tmp7 + tmp12);
-  const float tmp14 = (tmp3 * tmp4);
-  constexpr float tmp15 = 0.05;
-  const float tmp16 = (tmp14 + tmp15);
-  constexpr float tmp17 = 0.32;
-  const float tmp18 = (tmp10 * tmp17);
-  const float tmp19 = (tmp16 + tmp18);
-  S0 tmp8353(root_addr);
-  S0_ch tmp8355 = tmp8353.children(tmp8453);
-  S1 tmp8356 = tmp8355.get0(runtime_, mem_alloc_);
-  constexpr int32_t tmp8465 = 16383;
-  const int32_t tmp8466 = (tmp1 & tmp8465);
-  S1_ch tmp8359 = tmp8356.children(tmp8466);
-  device float* tmp8360 = tmp8359.get0(runtime_, mem_alloc_).val;
-  *tmp8360 = tmp13;
-  device float* tmp8370 = tmp8359.get1(runtime_, mem_alloc_).val;
-  *tmp8370 = tmp19;
-  S17 tmp8376 = tmp8355.get4(runtime_, mem_alloc_);
-  S17_ch tmp8379 = tmp8376.children(tmp8466);
-  device int32_t* tmp8380 = tmp8379.get0(runtime_, mem_alloc_).val;
-  *tmp8380 = tmp8462;
-  constexpr float tmp27 = 0.0;
-  S4 tmp8386 = tmp8355.get1(runtime_, mem_alloc_);
-  S4_ch tmp8389 = tmp8386.children(tmp8466);
-  device float* tmp8390 = tmp8389.get0(runtime_, mem_alloc_).val;
-  *tmp8390 = tmp27;
-  device float* tmp8400 = tmp8389.get1(runtime_, mem_alloc_).val;
-  *tmp8400 = tmp27;
-  constexpr float tmp32 = 1.0;
-  S12 tmp8406 = tmp8355.get3(runtime_, mem_alloc_);
-  S12_ch tmp8409 = tmp8406.children(tmp8466);
-  device float* tmp8410 = tmp8409.get0(runtime_, mem_alloc_).val;
-  *tmp8410 = tmp32;
-  device float* tmp8420 = tmp8409.get1(runtime_, mem_alloc_).val;
-  *tmp8420 = tmp27;
-  device float* tmp8430 = tmp8409.get2(runtime_, mem_alloc_).val;
-  *tmp8430 = tmp27;
-  device float* tmp8440 = tmp8409.get3(runtime_, mem_alloc_).val;
-  *tmp8440 = tmp32;
-  S19 tmp8446 = tmp8355.get5(runtime_, mem_alloc_);
-  S19_ch tmp8449 = tmp8446.children(tmp8466);
-  device float* tmp8450 = tmp8449.get0(runtime_, mem_alloc_).val;
-  *tmp8450 = tmp32;
+  constexpr int32_t tmp2 = 95;
+  const int32_t tmp8485 = (tmp1 / tmp2);
+  constexpr int32_t tmp8486 = 0;
+  const int32_t tmp8487 = -(tmp1 < tmp8486);
+  const int32_t tmp8489 = (tmp8485 * tmp2);
+  const int32_t tmp8490 = -(tmp8487 != tmp8486);
+  const int32_t tmp8491 = -(tmp1 != tmp8486);
+  const int32_t tmp8492 = -(tmp8489 != tmp1);
+  const int32_t tmp8493 = (tmp8490 & tmp8491);
+  const int32_t tmp8494 = (tmp8493 & tmp8492);
+  const int32_t tmp8495 = (tmp8485 + tmp8494);
+  const float tmp4 = static_cast<float>(tmp8495);
+  const int32_t tmp5 = (tmp8495 * tmp2);
+  const int32_t tmp6 = (tmp1 - tmp5);
+  const float tmp7 = static_cast<float>(tmp6);
+  constexpr float tmp8 = 0.0021052633;
+  const float tmp9 = (tmp4 * tmp8);
+  constexpr float tmp10 = 0.3;
+  const float tmp11 = (tmp9 + tmp10);
+  constexpr int32_t tmp12 = 3000;
+  const int32_t tmp8496 = (tmp1 / tmp12);
+  const int32_t tmp8500 = (tmp8496 * tmp12);
+  const int32_t tmp8503 = -(tmp8500 != tmp1);
+  const int32_t tmp8505 = (tmp8493 & tmp8503);
+  const int32_t tmp8506 = (tmp8496 + tmp8505);
+  const float tmp14 = static_cast<float>(tmp8506);
+  constexpr float tmp15 = 0.1;
+  const float tmp16 = (tmp14 * tmp15);
+  const float tmp17 = (tmp11 + tmp16);
+  const float tmp18 = (tmp7 * tmp8);
+  constexpr float tmp19 = 0.05;
+  const float tmp20 = (tmp18 + tmp19);
+  constexpr float tmp21 = 0.32;
+  const float tmp22 = (tmp14 * tmp21);
+  const float tmp23 = (tmp20 + tmp22);
+  S0 tmp8386(root_addr);
+  S0_ch tmp8388 = tmp8386.children(tmp8486);
+  S1 tmp8389 = tmp8388.get0(runtime_, mem_alloc_);
+  constexpr int32_t tmp8509 = 16383;
+  const int32_t tmp8510 = (tmp1 & tmp8509);
+  S1_ch tmp8392 = tmp8389.children(tmp8510);
+  device float* tmp8393 = tmp8392.get0(runtime_, mem_alloc_).val;
+  *tmp8393 = tmp17;
+  device float* tmp8403 = tmp8392.get1(runtime_, mem_alloc_).val;
+  *tmp8403 = tmp23;
+  S17 tmp8409 = tmp8388.get4(runtime_, mem_alloc_);
+  S17_ch tmp8412 = tmp8409.children(tmp8510);
+  device int32_t* tmp8413 = tmp8412.get0(runtime_, mem_alloc_).val;
+  *tmp8413 = tmp8506;
+  constexpr float tmp31 = 0.0;
+  S4 tmp8419 = tmp8388.get1(runtime_, mem_alloc_);
+  S4_ch tmp8422 = tmp8419.children(tmp8510);
+  device float* tmp8423 = tmp8422.get0(runtime_, mem_alloc_).val;
+  *tmp8423 = tmp31;
+  device float* tmp8433 = tmp8422.get1(runtime_, mem_alloc_).val;
+  *tmp8433 = tmp31;
+  constexpr float tmp36 = 1.0;
+  S12 tmp8439 = tmp8388.get3(runtime_, mem_alloc_);
+  S12_ch tmp8442 = tmp8439.children(tmp8510);
+  device float* tmp8443 = tmp8442.get0(runtime_, mem_alloc_).val;
+  *tmp8443 = tmp36;
+  device float* tmp8453 = tmp8442.get1(runtime_, mem_alloc_).val;
+  *tmp8453 = tmp31;
+  device float* tmp8463 = tmp8442.get2(runtime_, mem_alloc_).val;
+  *tmp8463 = tmp31;
+  device float* tmp8473 = tmp8442.get3(runtime_, mem_alloc_).val;
+  *tmp8473 = tmp36;
+  S19 tmp8479 = tmp8388.get5(runtime_, mem_alloc_);
+  S19_ch tmp8482 = tmp8479.children(tmp8510);
+  device float* tmp8483 = tmp8482.get0(runtime_, mem_alloc_).val;
+  *tmp8483 = tmp36;
 }
 
 }  // namespace
-kernel void mtl_k0005_initialize_c6_0_0(
+kernel void mtl_k0006_initialize_c6_0_0(
     device byte* root_addr [[buffer(0)]],
     device byte* global_tmps_addr [[buffer(1)]],
     device byte* runtime_addr [[buffer(2)]],
@@ -768,7 +776,7 @@ kernel void mtl_k0005_initialize_c6_0_0(
   device auto *runtime_ = reinterpret_cast<device Runtime *>(runtime_addr);
   device auto *mem_alloc_ = reinterpret_cast<device MemoryAllocator *>(runtime_ + 1);
   for (int ii = begin_; ii < end_; ii += ugrid_size_) {
-    mtl_k0005_initialize_c6_0_0_func(root_addr, global_tmps_addr, runtime_addr, print_assert_addr, ii);
+    mtl_k0006_initialize_c6_0_0_func(root_addr, global_tmps_addr, runtime_addr, print_assert_addr, ii);
   }
 }
 

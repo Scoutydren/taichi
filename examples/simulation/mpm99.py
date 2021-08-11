@@ -107,9 +107,11 @@ group_size = n_particles // 3
 @ti.kernel
 def initialize():
     for i in range(n_particles):
+        x1 = (i // 95) / 95
+        x2 = (i % 95) / 95
         x[i] = [
-            ti.random() * 0.2 + 0.3 + 0.10 * (i // group_size),
-            ti.random() * 0.2 + 0.05 + 0.32 * (i // group_size)
+            x1 * 0.2 + 0.3 + 0.10 * (i // group_size),
+            x2 * 0.2 + 0.05 + 0.32 * (i // group_size)
         ]
         material[i] = i // group_size  # 0: fluid 1: jelly 2: snow
         v[i] = ti.Matrix([0, 0])
